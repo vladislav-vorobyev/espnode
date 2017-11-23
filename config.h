@@ -12,6 +12,8 @@ public:
   float t1ShiftDelta; // value to correct the t1
   float t2ShiftDelta; // value to correct the t2
   int dataStoreDelay; // delay between send data to hosting (sec)
+  int dataStoreAttempts; // attempts to resending if failed
+  int dataStoreAttemptsDelay; // delay between attempts to resend (sec)
   String storeLogin; // store data page access
   String storePassword;
   String storeURL; // hosting
@@ -25,6 +27,8 @@ public:
     alarmSkipDelay = 0;
     t1ShiftDelta = t2ShiftDelta = 0;
     dataStoreDelay = DATA_STORE_DEFAULT_DELAY;
+    dataStoreAttempts = ATTEMPTS_TO_STORE_DATA;
+    dataStoreAttemptsDelay = ATTEMPTS_DEFAULT_DELAY;
     storeLogin = "esp8266";
     storePassword = "123";
     storeURL = "http://vvvnet.ru/home/data.php";
@@ -92,6 +96,14 @@ bool NodeConfig::load() {
   if (val.success()) dataStoreDelay = val;
   Serial.println(String("dataStoreDelay: ") + dataStoreDelay);
   //
+  val = json["dataStoreAttempts"];
+  if (val.success()) dataStoreAttempts = val;
+  Serial.println(String("dataStoreAttempts: ") + dataStoreAttempts);
+  //
+  val = json["dataStoreAttemptsDelay"];
+  if (val.success()) dataStoreAttemptsDelay = val;
+  Serial.println(String("dataStoreAttemptsDelay: ") + dataStoreAttemptsDelay);
+  //
   val = json["storeLogin"];
   if (val.success()) storeLogin = val.as<String>();
   Serial.println(String("storeLogin: ") + storeLogin);
@@ -135,6 +147,8 @@ bool NodeConfig::save() {
   json["alarmTestMode"] = alarmTestMode;
   json["alarmSkipDelay"] = alarmSkipDelay;
   json["dataStoreDelay"] = dataStoreDelay;
+  json["dataStoreAttempts"] = dataStoreAttempts;
+  json["dataStoreAttemptsDelay"] = dataStoreAttemptsDelay;
   json["storeLogin"] = storeLogin;
   json["storePassword"] = storePassword;
   json["storeURL"] = storeURL;
@@ -162,6 +176,8 @@ String NodeConfig::getHTMLFormFields() {
   response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:60px'> t1 shift<br>\n";
   response += "<input type='text' name='t2ShiftDelta' value='" + String(t2ShiftDelta) + "' style='width:60px'> t2 shift<br>\n";
   response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:60px'> store delay (sec)<br>\n";
+  response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:60px'> store attempts<br>\n";
+  response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:60px'> store attempts delay (sec)<br>\n";
   response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:200px'> store login<br>\n";
   response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:200px'> store password<br>\n";
   response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:200px'> store URL<br>\n";
@@ -181,6 +197,8 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   if ((val = server.arg("t1ShiftDelta")) != "") t1ShiftDelta = atof(val.c_str());
   if ((val = server.arg("t2ShiftDelta")) != "") t2ShiftDelta = atof(val.c_str());
   if ((val = server.arg("dataStoreDelay")) != "") dataStoreDelay = atoi(val.c_str());
+  if ((val = server.arg("dataStoreAttempts")) != "") dataStoreAttempts = atoi(val.c_str());
+  if ((val = server.arg("dataStoreAttemptsDelay")) != "") dataStoreAttemptsDelay = atoi(val.c_str());
   storeLogin = server.arg("storeLogin");
   storePassword = server.arg("storePassword");
   storeURL = server.arg("storeURL");
