@@ -10,7 +10,7 @@
 *  D0 (GPIO16)
 */
 
-const char* SKETCH_VERSION = "0.9.9"; // sketch version
+const char* SKETCH_VERSION = "0.9.11"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -20,12 +20,12 @@ const char* SKETCH_VERSION = "0.9.9"; // sketch version
 #define BUZZ_PIN 15 // Buzzer pin
 #define BUZZ_TONE 1000 // Buzzer tone
 
-#define WIFI_CONNECTING_WAIT 5 // time to wait for connecting to WiFi (sec)
+#define WIFI_CONNECTING_WAIT 10 // time to wait for connecting to WiFi (sec)
 #define WIFI_RECONNECT_DELAY 30 // time to wait before reconnecting to WiFi (sec)
-#define ALARM_INIT_WAIT 60 // time to wait before initialize alarm pin default state (sec)
-
+#define ALARM_INIT_WAIT 60 // time to wait from start before initialize alarm pin default state (sec)
 #define STORE_DATA_DELAY 300 // delay between send data to hosting (sec)
 
+#define DEBUG_HTTPCLIENT Serial.print
 
 #include <SPI.h>
 #include <Wire.h>
@@ -92,7 +92,7 @@ bool isAlarmSent = false; // alarm sending status
 bool buzzerOn = false; // buzzer on/off
 int alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
 int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state
-int wifiReconnectDelay = 0; // delay counter before reconnecting to WiFi
+int wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
@@ -177,7 +177,7 @@ void setup(void){
 
   // Connect to WiFi network
   if (!connectToWiFi()) {
-    wifiReconnectDelay = WIFI_RECONNECT_DELAY * 2;
+    wifiReconnectTime = millis() + WIFI_RECONNECT_DELAY * 1000;
     delay(1000);
   }
   
@@ -206,16 +206,14 @@ void setup(void){
 * Main loop
 */
 void loop(void){
-  //watchdog
-  ESP.wdtDisable(); //Кормление сторожевого пса
+  //reset hardware watchdog (~6 sec)
+  ESP.wdtDisable();
 
   //wifi check
-  if (wifiReconnectDelay > 0)
-    wifiReconnectDelay--;
-  if (WiFi.status() != WL_CONNECTED && wifiReconnectDelay == 0) {
+  if (WiFi.status() != WL_CONNECTED && wifiReconnectTime < millis()) {
     // try to reconnect
     if (!connectToWiFi()) {
-      wifiReconnectDelay = WIFI_RECONNECT_DELAY * 2;
+      wifiReconnectTime = millis() + WIFI_RECONNECT_DELAY * 1000;
       delay(1000);
     }
   }
@@ -291,18 +289,19 @@ void loop(void){
   if (++markPos > 9) markPos = 0;
   display.display();
 
-  // send alarm
-  if (isAlarm) {
-    if (!isAlarmSent) {
-      isAlarmSent = storeData(hostingURL);
+  if (WiFi.status() == WL_CONNECTED) {
+    // send alarm
+    if (isAlarm) {
+      if (!isAlarmSent) {
+        isAlarmSent = storeData(hostingURL);
+      }
     }
-  }
-  
-  // send data to hosting
-  if (flagToStoreData) {
-    flagToStoreData = false;
-    if (storeData(hostingURL))
-      Serial.println("Stored.");
+    // send data to hosting
+    if (flagToStoreData) {
+      flagToStoreData = false;
+      if (storeData(hostingURL))
+        Serial.println("Stored.");
+    }
   }
 
   delay(500);
@@ -403,6 +402,9 @@ bool connectToWiFi() {
     col++;
     wait--;
     delay(500);
+ 
+    //reset hardware watchdog (~6 sec) to avoid restart
+    ESP.wdtDisable();
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -418,7 +420,10 @@ bool connectToWiFi() {
   
     Serial.print("MAC address: ");
     Serial.println(WiFi.macAddress());
+    
+    wifiReconnectTime = 0;
     return true;
+    
   } else {
     Serial.println("");
     Serial.println(String("Can not connect to ") + ssid);
@@ -493,17 +498,25 @@ String getJSON(){
 * Send data to the hosting
 */
 bool storeData(const char* URL){
+  // enable soft watchdog to avoid hardware reset in 6 sec
+  ESP.wdtEnable(10000);
+  ESP.wdtFeed();
+  
   HTTPClient http;
   String post_data = String("data=") + getJSON();
-  
+
   Serial.println();
   Serial.println("[HTTP] begin...");
-  http.begin(URL);
-  http.setAuthorization(storeLogin, storePassword);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-  int httpCode = http.POST(post_data);
-  http.writeToStream(&Serial);
-  http.end();
+  int httpCode = 0;
+  if (http.begin(URL)) {
+    http.setAuthorization(storeLogin, storePassword);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    httpCode = http.POST(post_data);
+    http.writeToStream(&Serial);
+    http.end();
+  } else {
+    Serial.println("[HTTP] fail");
+  }
   Serial.println("[HTTP] end");
   return (httpCode == 200);
 }
