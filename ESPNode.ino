@@ -10,31 +10,10 @@
 *  D0 (GPIO16)
 */
 
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-  #define SSD1306_LCDWIDTH                  64
-  #define SSD1306_LCDHEIGHT                 48
-#include <Adafruit_SSD1306.h>
- 
-// SCL GPIO5 D1
-// SDA GPIO4 D2
-#define OLED_RESET 0  // GPIO0
-Adafruit_SSD1306 display(OLED_RESET);
- 
-
-#include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#include <ESP8266WebServer.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
+const char* SKETCH_VERSION = "0.9.9"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
-OneWire oneWire1(ONE_WIRE_BUS1);
-OneWire oneWire2(ONE_WIRE_BUS2);
-DallasTemperature ds18b20(&oneWire1);
-DallasTemperature ds18b20_2(&oneWire2);
 
 #define ALARM_PIN1 12  // Alarm 1st sensor pin
 #define ALARM_PIN2 13  // Alarm 2nd sensor pin
@@ -42,23 +21,81 @@ DallasTemperature ds18b20_2(&oneWire2);
 #define BUZZ_TONE 1000 // Buzzer tone
 
 #define WIFI_CONNECTING_WAIT 5 // time to wait for connecting to WiFi (sec)
-#define WIFI_RECONNECT_DELAY 30 // time to wait before reconnecting to WiFi (~sec)
-#define ALARM_INIT_WAIT 60 // time to wait before initialize alarm pin default state (~sec)
+#define WIFI_RECONNECT_DELAY 30 // time to wait before reconnecting to WiFi (sec)
+#define ALARM_INIT_WAIT 60 // time to wait before initialize alarm pin default state (sec)
+
+#define STORE_DATA_DELAY 300 // delay between send data to hosting (sec)
+
+
+#include <SPI.h>
+#include <Wire.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <Ticker.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+Ticker storeTicker;
+bool flagToStoreData = true; // up in ticker to do in the main loop
+
+OneWire oneWire1(ONE_WIRE_BUS1);
+OneWire oneWire2(ONE_WIRE_BUS2);
+DallasTemperature ds18b20(&oneWire1);
+DallasTemperature ds18b20_2(&oneWire2);
+
+#include <Adafruit_GFX.h>
+  #define SSD1306_LCDWIDTH                  64
+  #define SSD1306_LCDHEIGHT                 48
+#include <Adafruit_SSD1306.h>
+
+class Adafruit_SSD1306_m : public Adafruit_SSD1306 {
+ public:
+  Adafruit_SSD1306_m(int8_t RST = -1) : Adafruit_SSD1306(RST){
+  }
+  inline void resetDisplay(void){
+    clearDisplay();
+    setTextSize(1);
+    setTextColor(WHITE);
+    setCursor(0,0);
+  }
+};
+ 
+// SCL GPIO5 D1
+// SDA GPIO4 D2
+#define OLED_RESET 0  // GPIO0
+Adafruit_SSD1306_m display(OLED_RESET);
+ 
 
 const int activityLed = LED_BUILTIN;
 const int activityOn = 0;
 const int activityOff = 1;
 
-const char* ssid = "VVVHome";
-const char* password = "123";
+const int wifiNetNum = 2; // number of variants in the wifiNet
+const char* wifiNet[2][2] = {{"VVVHome","123"},{"VVVNetwork","123"}};
+const char* ssid;
+const char* password;
+
+const char* webLogin = "user"; // firmware page access
+const char* webPassword = "123";
+
+const char* hostingURL = "http://vvvnet.ru/home/data.php"; // hosting
+const char* localURL = "http://192.168.0.4/data.php"; // local server
+const char* storeLogin = "user"; // store data page access
+const char* storePassword = "123";
 
 int markPos = 0; // work animation mark position
 bool alarmActive = false; // alarm check activity status
 bool isAlarm = false; // alarm status
+bool isAlarmSent = false; // alarm sending status
 bool buzzerOn = false; // buzzer on/off
-int alarmInitWait = ALARM_INIT_WAIT * 1000; // delay before initialize sensors (msec)
+int alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
 int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state
 int wifiReconnectDelay = 0; // delay counter before reconnecting to WiFi
+
+bool isExistsWire1 = false;
+bool isExistsWire2 = false;
 
 ESP8266WebServer server(80);
 
@@ -68,41 +105,59 @@ ESP8266WebServer server(80);
 void setup(void){
   Serial.begin(115200);
   Serial.println("Begin");
+  Serial.print("Firmware version ");
+  Serial.println(SKETCH_VERSION);
 
+  // setup time to initialize sensors (msec)
+  alarmInitTime = millis() + ALARM_INIT_WAIT * 1000;
 
   // Prepare dispay
   // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 64x48)
   // init done
-  Serial.println("Init done");
+  Serial.println("Display init done.");
  
   // Show image buffer on the display hardware.
   // Since the buffer is intialized with an Adafruit splashscreen
   // internally, this will display the splashscreen.
   display.display();
-  delay(500); alarmInitWait -= 500;
+  delay(500);
  
-  // Clear the buffer.
-  display.clearDisplay();
+  // Clear the display.
+  display.resetDisplay();
+  display.println("Firmware:");
+  display.println(SKETCH_VERSION);
  
   // text display tests
-  Serial.println("Hello!");
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
-  display.println("Hello!");
   display.display();
-  delay(500); alarmInitWait -= 500;
+  delay(1500);
 
 
   // Prepare sensors
   Serial.println("Sensors:");
   display.println("Sensors:");
   display.display();
-  ds18b20.begin();
-  ds18b20_2.begin();
-  Serial.println("DS18B20 init done.");
-  display.println("DS18B20 ok");
+
+  // termo
+  if (oneWire2.reset()) {
+    isExistsWire2 = true;
+    ds18b20_2.begin();
+    Serial.println("DS18B20 2 init done.");
+    display.print("t2 ");
+  } else {
+    Serial.println("DS18B20 2 - no sensor.");
+    display.print("-- ");
+  }
+  if (oneWire1.reset()) {
+    isExistsWire1 = true;
+    ds18b20.begin();
+    Serial.println("DS18B20 1 init done.");
+    display.print("t1 ");
+  } else {
+    Serial.println("DS18B20 1 - no sensor.");
+    display.print("-- ");
+  }
+  display.println("");
   display.display();
 
   // initialize the alarm pin as an input:
@@ -118,12 +173,12 @@ void setup(void){
   Serial.println("activity led init done.");
   display.println("Led ok");
   display.display();
-  delay(500); alarmInitWait -= 500;
+  delay(500);
 
   // Connect to WiFi network
   if (!connectToWiFi()) {
     wifiReconnectDelay = WIFI_RECONNECT_DELAY * 2;
-    delay(1000); alarmInitWait -= 1000;
+    delay(1000);
   }
   
   // Start the server
@@ -133,7 +188,17 @@ void setup(void){
   Serial.println("HTTP server started");
   display.println("HTTP server started");
   display.display();
+
+  // test run of the json handler
+  Serial.println("Test handle JSON:");
+  handleJSON();
   
+  // init ticker
+  storeTicker.attach(STORE_DATA_DELAY, [](){
+    flagToStoreData = true;
+  });
+  
+  Serial.println("Initialization finished.");
   digitalWrite(activityLed, activityOff);
 }
 
@@ -165,9 +230,13 @@ void loop(void){
   int alarm2 = digitalRead(ALARM_PIN2);
   
   // alarm pins initialize
-  if (alarmInitWait <= 0 && alarmInitState1 < 0) {
-    alarmInitState1 = alarm1;
-    alarmInitState2 = alarm2;
+  alarmInitWait = alarmInitTime - millis(); // delay before initialize sensors (msec)
+  if (alarmInitWait <= 0) {
+    alarmInitWait = 0;
+    if (alarmInitState1 < 0)
+      alarmInitState1 = alarm1;
+    if (alarmInitState2 < 0)
+      alarmInitState2 = alarm2;
   }
   
   // alarm check
@@ -178,9 +247,7 @@ void loop(void){
   }
 
   // display
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.setTextSize(1);
+  display.resetDisplay();
   display.println(WiFi.localIP());
   display.print(String(alarm1) + " " + String(alarm2));
   if (alarmInitWait <= 0)
@@ -193,14 +260,19 @@ void loop(void){
     // show 1st sensor temperature
     display.setCursor(0,28);
     display.setTextSize(2);
-    display.println(temperature);
+    display.println(isExistsWire1? temperature : "--");
     // busser set off
     if (buzzerOn) {
       noTone(BUZZ_PIN);
       buzzerOn = false;
     }
   } else {
-    // animation alarm
+    // alarm
+    if (markPos % 2 == 0) {
+      display.setCursor(0,28);
+      display.setTextSize(2);
+      display.println("ALARM");
+    }
     // buzzer activity
     if (buzzerOn) {
       noTone(BUZZ_PIN);
@@ -219,8 +291,21 @@ void loop(void){
   if (++markPos > 9) markPos = 0;
   display.display();
 
+  // send alarm
+  if (isAlarm) {
+    if (!isAlarmSent) {
+      isAlarmSent = storeData(hostingURL);
+    }
+  }
+  
+  // send data to hosting
+  if (flagToStoreData) {
+    flagToStoreData = false;
+    if (storeData(hostingURL))
+      Serial.println("Stored.");
+  }
+
   delay(500);
-  if (alarmInitWait > 0) alarmInitWait -= 500;
 }
 
 
@@ -230,12 +315,12 @@ void loop(void){
 */
 bool connectToWiFi() {
   //display
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
   Serial.println();
+  Serial.println("Try to connect to:");
+  for (int k = 0; k < wifiNetNum; k++)
+    Serial.println(wifiNet[k][0]);
   Serial.println("Scan WiFi networks");
+  display.resetDisplay();
   display.println("Scan WiFi");
   display.display();
   
@@ -258,9 +343,6 @@ bool connectToWiFi() {
     Serial.println(" networks found");
     for (int i = 0; i < n; ++i)
     {
-      // check
-      if (WiFi.SSID(i) == String(ssid))
-        ssid_exists = true;
       // Print SSID and RSSI for each network found
       Serial.print(i + 1);
       Serial.print(": ");
@@ -269,11 +351,20 @@ bool connectToWiFi() {
       Serial.print(WiFi.RSSI(i));
       Serial.print(")");
       Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE)?" ":"*");
+      // check
+      String id = WiFi.SSID(i);
+      for (int k = 0; k < wifiNetNum; k++) {
+        if (id == String(wifiNet[k][0])) {
+          ssid_exists = true;
+          ssid = wifiNet[k][0];
+          password = wifiNet[k][1];
+        }
+      }
       delay(10);
     }
     if (!ssid_exists) {
-      Serial.println(String(ssid) + " not found.");
-      display.println(ssid);
+      Serial.println("Not found.");
+      display.println(wifiNet[0][0]);
       display.println("Not found!");
       display.display();
       return false;
@@ -317,14 +408,11 @@ bool connectToWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     // connected
     Serial.println("");
-    Serial.print("Connected to ");
-    Serial.println(ssid);
+    Serial.println(String("Connected to ") + ssid);
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
-    display.clearDisplay();
-    display.setCursor(0,0);
+    display.resetDisplay();
     display.println("Connected.");
-    display.println("IP:");
     display.println(WiFi.localIP());
     display.display();
   
@@ -333,10 +421,8 @@ bool connectToWiFi() {
     return true;
   } else {
     Serial.println("");
-    Serial.print("Can not connect to ");
-    Serial.println(ssid);
-    display.clearDisplay();
-    display.setCursor(0,0);
+    Serial.println(String("Can not connect to ") + ssid);
+    display.resetDisplay();
     display.println("Not connected.");
     return false;
   }
@@ -355,6 +441,74 @@ String getTemperature(DallasTemperature *ds18b20){
 
 
 /*
+* Prepare JSON
+*/
+String getJSON(){
+  String mac = WiFi.macAddress();
+  String temperature1 = (isExistsWire1)? getTemperature(&ds18b20) : "";
+  String temperature2 = (isExistsWire2)? getTemperature(&ds18b20_2) : "";
+  String s_alarm = (isAlarm)? "true" : "false";
+  String s_alarm1 = String(digitalRead(ALARM_PIN1));
+  String s_alarm2 = String(digitalRead(ALARM_PIN2));
+  String s_alarm_init1 = String(alarmInitState1);
+  String s_alarm_init2 = String(alarmInitState2);
+  String s_alarm_ready = (alarmInitWait <= 0)? "true" : "false";
+  String s_alarm_active = (alarmActive)? "true" : "false";
+  String s_alarm_wait = String(alarmInitWait);
+  
+  Serial.println();
+  Serial.println("Mac address: " + mac);
+  Serial.println("Temperature1: " + temperature1);
+  Serial.println("Temperature2: " + temperature2);
+  Serial.println("Alarm1: " + s_alarm1);
+  Serial.println("Alarm2: " + s_alarm2);
+  Serial.println("AlarmDefaultState1: " + s_alarm_init1);
+  Serial.println("AlarmDefaultState2: " + s_alarm_init2);
+  if (alarmInitWait > 0)
+    Serial.println("AlarmWait: " + s_alarm_wait);
+  Serial.println("AlarmReady: " + s_alarm_ready);
+  Serial.println("AlarmActive: " + s_alarm_active);
+  Serial.println("Alarm: " + s_alarm);
+  
+  String json = "{";
+  json += "\"t1\":\"" + temperature1 + "\", ";
+  json += "\"t2\":\"" + temperature2 + "\", ";
+  json += "\"alarm1\":" + s_alarm1 + ", ";
+  json += "\"alarm2\":" + s_alarm2 + ", ";
+  json += "\"alarm_init1\":" + s_alarm_init1 + ", ";
+  json += "\"alarm_init2\":" + s_alarm_init2 + ", ";
+  json += "\"alarm_wait\":" + s_alarm_wait + ", ";
+  json += "\"alarm_ready\":" + s_alarm_ready + ", ";
+  json += "\"alarm_active\":" + s_alarm_active + ", ";
+  json += "\"alarm\":" + s_alarm + ", ";
+  json += "\"mac\":\"" + mac + "\", ";
+  json += "\"ver\":\"" + String(SKETCH_VERSION) + "\"";
+  json += "}";
+
+  return json;
+}
+
+
+/*
+* Send data to the hosting
+*/
+bool storeData(const char* URL){
+  HTTPClient http;
+  String post_data = String("data=") + getJSON();
+  
+  Serial.println();
+  Serial.println("[HTTP] begin...");
+  http.begin(URL);
+  http.setAuthorization(storeLogin, storePassword);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  int httpCode = http.POST(post_data);
+  http.writeToStream(&Serial);
+  http.end();
+  Serial.println("[HTTP] end");
+  return (httpCode == 200);
+}
+
+/*
 * server.on("/inline", [](){
 * server.send(200, "text/plain", "this works as well");
 * });
@@ -364,10 +518,22 @@ void initWebServer() {
   server.onNotFound(handleNotFound);
   server.on("/json", handleJSON);
   server.on("/mac", HTTP_GET, [](){
+    digitalWrite(activityLed, activityOn);
     serverSendHeaders();
     server.send(200, "text/plain", WiFi.macAddress());
+    digitalWrite(activityLed, activityOff);
+  });
+  server.on("/restart", HTTP_GET, [](){
+    digitalWrite(activityLed, activityOn);
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    serverSendHeaders();
+    server.send(200, "text/plain", "Restart...");
+    ESP.restart();
+    digitalWrite(activityLed, activityOff);
   });
   server.on("/alarm", HTTP_GET, [](){
+    digitalWrite(activityLed, activityOn);
     String response = String(isAlarm?"1":"0");
     // get arguments
     String set = server.arg("set");
@@ -375,60 +541,44 @@ void initWebServer() {
     // change status
     if (set == "on") {
       alarmActive = true;
+      isAlarm = false;
+      isAlarmSent = false;
       if (wait > 0) {
-        
+        alarmInitTime = millis() + wait * 1000;
+        alarmInitState1 = -1; // alarm pins init state
+        alarmInitState2 = -1;
       }
     }
     if (set == "off") {
       alarmActive = false;
       isAlarm = false;
+      isAlarmSent = false;
+    }
+    if (set == "test") {
+      alarmActive = true;
+      isAlarm = true;
     }
     // response
     serverSendHeaders();
     server.send(200, "text/plain", response);
+    digitalWrite(activityLed, activityOff);
   });
+}
+
+void serverSendHeaders() {
+    server.sendHeader("Connection", "close");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "0");
 }
 
 void handleJSON() {
   digitalWrite(activityLed, activityOn);
 
-  String mac = WiFi.macAddress();
-  String temperature1 = getTemperature(&ds18b20);
-  String temperature2 = getTemperature(&ds18b20_2);
-  String s_alarm = (isAlarm)? "true" : "false";
-  String s_alarm1 = String(digitalRead(ALARM_PIN1));
-  String s_alarm2 = String(digitalRead(ALARM_PIN2));
-  String s_alarm_init1 = String(alarmInitState1);
-  String s_alarm_init2 = String(alarmInitState2);
-  String s_alarm_ready = (alarmInitWait <= 0)? "true" : "false";
-  String s_alarm_active = (alarmActive)? "true" : "false";
-  
-  Serial.println();
-  Serial.println("Mac address: " + mac);
-  Serial.println("Temperature1: " + temperature1);
-  Serial.println("Temperature2: " + temperature2);
-  Serial.println("Alarm: " + s_alarm);
-  Serial.println("Alarm1: " + s_alarm1);
-  Serial.println("Alarm2: " + s_alarm2);
-  Serial.println("AlarmDefaultState1: " + s_alarm_init1);
-  Serial.println("AlarmDefaultState2: " + s_alarm_init2);
-  Serial.println("AlarmReady: " + s_alarm_ready);
-  Serial.println("AlarmActive: " + s_alarm_active);
-  
+  String json = getJSON();
   serverSendHeaders();
-  String response = "{";
-  response += "\"t1\":\"" + temperature1 + "\", ";
-  response += "\"t2\":\"" + temperature2 + "\", ";
-  response += "\"alarm\":" + s_alarm + ", ";
-  response += "\"alarm1\":" + s_alarm1 + ", ";
-  response += "\"alarm2\":" + s_alarm2 + ", ";
-  response += "\"alarm_init1\":" + s_alarm_init1 + ", ";
-  response += "\"alarm_init2\":" + s_alarm_init2 + ", ";
-  response += "\"alarm_ready\":" + s_alarm_ready + ", ";
-  response += "\"alarm_active\":" + s_alarm_active + ", ";
-  response += "\"mac\":\"" + mac + "\"";
-  response += "}";
-  server.send(200, "application/json", response);
+  server.send(200, "application/json", json);
   
   digitalWrite(activityLed, activityOff);
 }
@@ -439,6 +589,7 @@ void handleRoot() {
   String temperature1 = getTemperature(&ds18b20);
   String temperature2 = getTemperature(&ds18b20_2);
   
+  Serial.println();
   Serial.println("Temperature1: " + temperature1);
   Serial.println("Temperature2: " + temperature2);
   
@@ -474,29 +625,33 @@ void handleNotFound(){
   digitalWrite(activityLed, activityOff);
 }
 
-void serverSendHeaders() {
-    server.sendHeader("Connection", "close");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.sendHeader("Pragma", "no-cache");
-    server.sendHeader("Expires", "0");
-}
 
 void initWebUpdate(){
-  server.on("/web", HTTP_GET, [](){
-    server.sendHeader("Connection", "close");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "text/html", "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>");
-  });
-  server.on("/update", HTTP_POST, [](){
+  server.on("/firmware", HTTP_GET, [](){
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    
     serverSendHeaders();
-    server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK");
-    ESP.restart();
+    server.send(200, "text/html", "<form method='POST' action='/firmware-update' enctype='multipart/form-data'><input type='file' name='update'> <input type='submit' value='Update'></form>");
+  });
+  server.on("/firmware-update", HTTP_POST, [](){
+    serverSendHeaders();
+    if (Update.hasError()) {
+      server.send(200, "text/plain", "FAIL");
+    } else {
+      server.send(200, "text/plain", "OK");
+      ESP.restart();
+    }
   },[](){
+    if(!server.authenticate(webLogin, webPassword))
+      return false;
+    
+    // upload
     HTTPUpload& upload = server.upload();
     if(upload.status == UPLOAD_FILE_START){
       Serial.setDebugOutput(true);
       //WiFiUDP::stopAll();
+      Serial.println();
       Serial.printf("Update: %s\n", upload.filename.c_str());
       uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
       if(!Update.begin(maxSketchSpace)){//start with max available size
@@ -517,3 +672,4 @@ void initWebUpdate(){
     yield();
   });
 }
+
