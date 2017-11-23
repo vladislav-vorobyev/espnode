@@ -10,7 +10,7 @@
 *  D0 (GPIO16)
 */
 
-const char* SKETCH_VERSION = "0.9.11"; // sketch version
+const char* SKETCH_VERSION = "0.9.19"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -22,10 +22,10 @@ const char* SKETCH_VERSION = "0.9.11"; // sketch version
 
 #define WIFI_CONNECTING_WAIT 10 // time to wait for connecting to WiFi (sec)
 #define WIFI_RECONNECT_DELAY 30 // time to wait before reconnecting to WiFi (sec)
-#define ALARM_INIT_WAIT 60 // time to wait from start before initialize alarm pin default state (sec)
-#define STORE_DATA_DELAY 300 // delay between send data to hosting (sec)
-
-#define DEBUG_HTTPCLIENT Serial.print
+#define WIFI_CONNECTION_CHECK_DELAY 60 // delay between connection check (sec)
+#define ALARM_INIT_WAIT 60 // default time to wait from start before initialize alarm pin default state (sec)
+#define DATA_STORE_DEFAULT_DELAY 300 // default delay between send data to hosting (sec)
+#define ATTEMPTS_TO_STORE_DATA 3 // number of attempts to store data
 
 #include <SPI.h>
 #include <Wire.h>
@@ -36,14 +36,6 @@ const char* SKETCH_VERSION = "0.9.11"; // sketch version
 #include <Ticker.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-
-Ticker storeTicker;
-bool flagToStoreData = true; // up in ticker to do in the main loop
-
-OneWire oneWire1(ONE_WIRE_BUS1);
-OneWire oneWire2(ONE_WIRE_BUS2);
-DallasTemperature ds18b20(&oneWire1);
-DallasTemperature ds18b20_2(&oneWire2);
 
 #include <Adafruit_GFX.h>
   #define SSD1306_LCDWIDTH                  64
@@ -66,27 +58,20 @@ class Adafruit_SSD1306_m : public Adafruit_SSD1306 {
 // SDA GPIO4 D2
 #define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306_m display(OLED_RESET);
- 
+
+#include "config.h"
+NodeConfig nodeConfig;
+
+#include "access.h"
+const char* ssid;
+const char* password;
 
 const int activityLed = LED_BUILTIN;
 const int activityOn = 0;
 const int activityOff = 1;
 
-const int wifiNetNum = 2; // number of variants in the wifiNet
-const char* wifiNet[2][2] = {{"VVVHome","123"},{"VVVNetwork","123"}};
-const char* ssid;
-const char* password;
-
-const char* webLogin = "user"; // firmware page access
-const char* webPassword = "123";
-
-const char* hostingURL = "http://vvvnet.ru/home/data.php"; // hosting
-const char* localURL = "http://192.168.0.4/data.php"; // local server
-const char* storeLogin = "user"; // store data page access
-const char* storePassword = "123";
-
 int markPos = 0; // work animation mark position
-bool alarmActive = false; // alarm check activity status
+bool alarmActive = false; // alarm check activated (loaded from config)
 bool isAlarm = false; // alarm status
 bool isAlarmSent = false; // alarm sending status
 bool buzzerOn = false; // buzzer on/off
@@ -97,7 +82,22 @@ int wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
 
+Ticker storeTicker;
+int tryToStoreData = ATTEMPTS_TO_STORE_DATA; // up in ticker to do in the main loop
+
+Ticker connectionTicker;
+bool tryToCheckConnection = false; // up in ticker to do in the main loop
+
+Ticker wifiActivityTicker;
+bool skipAlarmCheck = false; // up in sending/receiving func and off in the ticker
+
+OneWire oneWire1(ONE_WIRE_BUS1);
+OneWire oneWire2(ONE_WIRE_BUS2);
+DallasTemperature ds18b20(&oneWire1);
+DallasTemperature ds18b20_2(&oneWire2);
+
 ESP8266WebServer server(80);
+
 
 /*
 * Starting the node
@@ -107,9 +107,6 @@ void setup(void){
   Serial.println("Begin");
   Serial.print("Firmware version ");
   Serial.println(SKETCH_VERSION);
-
-  // setup time to initialize sensors (msec)
-  alarmInitTime = millis() + ALARM_INIT_WAIT * 1000;
 
   // Prepare dispay
   // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
@@ -133,8 +130,32 @@ void setup(void){
   delay(1500);
 
 
+  // Load config
+  Serial.println("Mounting FS...");
+  display.println("Mounting..");
+  display.display();
+  if (!SPIFFS.begin()) {
+    Serial.println("Failed to mount file system");
+    display.println("FS failed!");
+  } else {
+    if (!nodeConfig.load()) {
+      Serial.println("Failed to load config");
+      display.println("Failed to load config");
+    } else {
+      Serial.println("Config loaded");
+      display.println("Config OK");
+    }
+  }
+  display.display();
+  delay(500);
+
+
+  // setup time to initialize sensors (msec)
+  alarmInitTime = millis() + ALARM_INIT_WAIT * 1000;
+
   // Prepare sensors
   Serial.println("Sensors:");
+  display.resetDisplay();
   display.println("Sensors:");
   display.display();
 
@@ -157,7 +178,7 @@ void setup(void){
     Serial.println("DS18B20 1 - no sensor.");
     display.print("-- ");
   }
-  display.println("");
+  display.println();
   display.display();
 
   // initialize the alarm pin as an input:
@@ -189,18 +210,20 @@ void setup(void){
   display.println("HTTP server started");
   display.display();
 
-  // test run of the json handler
-  Serial.println("Test handle JSON:");
-  handleJSON();
+  // test run of get json
+  Serial.println();
+  Serial.print("Test JSON:");
+  getJSON();
   
-  // init ticker
-  storeTicker.attach(STORE_DATA_DELAY, [](){
-    flagToStoreData = true;
-  });
+  // init from config
+  alarmActive = nodeConfig.alarmActive;
+  initFromConfig();
   
+  Serial.println();
   Serial.println("Initialization finished.");
   digitalWrite(activityLed, activityOff);
 }
+
 
 /*
 * Main loop
@@ -210,6 +233,12 @@ void loop(void){
   ESP.wdtDisable();
 
   //wifi check
+  if (WiFi.status() == WL_CONNECTED && tryToCheckConnection) {
+    tryToCheckConnection = false;
+    if (!checkConnection(nodeConfig.wifiRouterIP.c_str())) {
+      WiFi.disconnect();
+    }
+  }
   if (WiFi.status() != WL_CONNECTED && wifiReconnectTime < millis()) {
     // try to reconnect
     if (!connectToWiFi()) {
@@ -221,7 +250,7 @@ void loop(void){
   server.handleClient();
 
   // temperature
-  String temperature = getTemperature(&ds18b20);
+  String temperature = getTemperature(&ds18b20, nodeConfig.t1ShiftDelta);
 
   // read the state of the alarm sensors
   int alarm1 = digitalRead(ALARM_PIN1);
@@ -238,7 +267,7 @@ void loop(void){
   }
   
   // alarm check
-  if (alarmActive && alarmInitWait <= 0) {
+  if (alarmActive && alarmInitWait <= 0 && (!skipAlarmCheck || nodeConfig.alarmSkipDelay == 0)) {
     if (alarm1 != alarmInitState1 || alarm2 != alarmInitState2) {
       isAlarm = true;
     }
@@ -290,17 +319,37 @@ void loop(void){
   display.display();
 
   if (WiFi.status() == WL_CONNECTED) {
+    // enable soft watchdog to avoid hardware reset in 6 sec
+    ESP.wdtEnable(10000);
+    ESP.wdtFeed();
+    
     // send alarm
     if (isAlarm) {
       if (!isAlarmSent) {
-        isAlarmSent = storeData(hostingURL);
+        isAlarmSent = storeData(nodeConfig.storeURL.c_str());
+        Serial.println("Alarm sent: " + String(isAlarmSent));
+      }
+      if (isAlarmSent && nodeConfig.alarmTestMode && alarm1 == alarmInitState1 && alarm2 == alarmInitState2) {
+        Serial.println("Alarm reset to off");
+        isAlarm = isAlarmSent = false;
       }
     }
     // send data to hosting
-    if (flagToStoreData) {
-      flagToStoreData = false;
-      if (storeData(hostingURL))
+    if (tryToStoreData > 0) {
+      if (storeData(nodeConfig.storeURL.c_str())) {
+        tryToStoreData = 0;
         Serial.println("Stored.");
+      } else {
+        tryToStoreData--;
+      }
+    }
+    
+    ESP.wdtDisable();
+    
+  } else {
+    if (isAlarm && nodeConfig.alarmTestMode) {
+      Serial.println("Alarm reset to off");
+      isAlarm = isAlarmSent = false;
     }
   }
 
@@ -310,9 +359,36 @@ void loop(void){
 
 
 /*
+* Initialize from config
+*/
+void initFromConfig(){
+  // init store ticker
+  storeTicker.attach(nodeConfig.dataStoreDelay, [](){
+    tryToStoreData = ATTEMPTS_TO_STORE_DATA;
+  });
+  // init connection ticker
+  if (nodeConfig.iswifiConnectionCheck)
+    connectionTicker.attach(WIFI_CONNECTION_CHECK_DELAY, [](){
+      tryToCheckConnection = true;
+    });
+  else
+    connectionTicker.detach();
+  // init alarm skip ticker
+  if (nodeConfig.alarmSkipDelay > 0)
+    wifiActivityTicker.attach(nodeConfig.alarmSkipDelay, [](){
+      skipAlarmCheck = false; // up in sending/receiving func and off in the ticker
+    });
+  else
+    wifiActivityTicker.detach();
+}
+
+
+/*
 * Try to connect to WiFi
 */
 bool connectToWiFi() {
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  
   //display
   Serial.println();
   Serial.println("Try to connect to:");
@@ -372,7 +448,6 @@ bool connectToWiFi() {
 
   // display
   Serial.println();
-  Serial.println();
   Serial.print("Connecting to " + String(ssid));
   display.println(ssid);
   display.println("Connecting");
@@ -402,6 +477,8 @@ bool connectToWiFi() {
     col++;
     wait--;
     delay(500);
+    
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
  
     //reset hardware watchdog (~6 sec) to avoid restart
     ESP.wdtDisable();
@@ -409,7 +486,7 @@ bool connectToWiFi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     // connected
-    Serial.println("");
+    Serial.println();
     Serial.println(String("Connected to ") + ssid);
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
@@ -425,7 +502,7 @@ bool connectToWiFi() {
     return true;
     
   } else {
-    Serial.println("");
+    Serial.println();
     Serial.println(String("Can not connect to ") + ssid);
     display.resetDisplay();
     display.println("Not connected.");
@@ -436,12 +513,29 @@ bool connectToWiFi() {
 /*
 * Get temperature from sensor
 */
-String getTemperature(DallasTemperature *ds18b20){
+String getTemperature(DallasTemperature *ds18b20, float shift){
   // Polls the sensors
   ds18b20->requestTemperatures();
   // Gets first probe on wire in lieu of by address
-  float temperature = ds18b20->getTempCByIndex(0);
+  float temperature = ds18b20->getTempCByIndex(0) + shift;
   return(String(temperature));
+}
+
+
+/*
+* Get uptime as string
+*/
+String getUptime(){
+  int msec = millis();
+  int days = int(msec / (1000*60*60*24));
+  msec = msec % (1000*60*60*24);
+  int hours = int(msec / (1000*60*60));
+  msec = msec % (1000*60*60);
+  int minutes = int(msec / (1000*60));
+  msec = msec % (1000*60);
+  char uptime[50];
+  sprintf(uptime, "%d days %02d:%02d:%02d", days, hours, minutes, msec/1000);
+  return(String(uptime));
 }
 
 
@@ -450,8 +544,8 @@ String getTemperature(DallasTemperature *ds18b20){
 */
 String getJSON(){
   String mac = WiFi.macAddress();
-  String temperature1 = (isExistsWire1)? getTemperature(&ds18b20) : "";
-  String temperature2 = (isExistsWire2)? getTemperature(&ds18b20_2) : "";
+  String temperature1 = (isExistsWire1)? getTemperature(&ds18b20, nodeConfig.t1ShiftDelta) : "";
+  String temperature2 = (isExistsWire2)? getTemperature(&ds18b20_2, nodeConfig.t2ShiftDelta) : "";
   String s_alarm = (isAlarm)? "true" : "false";
   String s_alarm1 = String(digitalRead(ALARM_PIN1));
   String s_alarm2 = String(digitalRead(ALARM_PIN2));
@@ -487,6 +581,7 @@ String getJSON(){
   json += "\"alarm_active\":" + s_alarm_active + ", ";
   json += "\"alarm\":" + s_alarm + ", ";
   json += "\"mac\":\"" + mac + "\", ";
+  json += "\"uptime\":\"" + getUptime() + "\", ";
   json += "\"ver\":\"" + String(SKETCH_VERSION) + "\"";
   json += "}";
 
@@ -498,10 +593,8 @@ String getJSON(){
 * Send data to the hosting
 */
 bool storeData(const char* URL){
-  // enable soft watchdog to avoid hardware reset in 6 sec
-  ESP.wdtEnable(10000);
-  ESP.wdtFeed();
-  
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+
   HTTPClient http;
   String post_data = String("data=") + getJSON();
 
@@ -509,16 +602,56 @@ bool storeData(const char* URL){
   Serial.println("[HTTP] begin...");
   int httpCode = 0;
   if (http.begin(URL)) {
-    http.setAuthorization(storeLogin, storePassword);
+    http.setAuthorization(nodeConfig.storeLogin.c_str(), nodeConfig.storePassword.c_str());
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     httpCode = http.POST(post_data);
+    if (httpCode != 200)
+      Serial.println(httpCode);
     http.writeToStream(&Serial);
     http.end();
   } else {
     Serial.println("[HTTP] fail");
   }
   Serial.println("[HTTP] end");
+
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+
   return (httpCode == 200);
+}
+
+/*
+* Check server availability
+*/
+bool checkConnection(const char* host){
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  
+  Serial.println();
+  Serial.print("connecting to ");
+  Serial.println(host);
+  
+  // Use WiFiClient class to create TCP connections
+  WiFiClient client;
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort)) {
+    Serial.println("connection failed");
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+    return false;
+  }
+  
+  // send the request to the server
+  client.print("HEAD / HTTP/1.1\r\nConnection: close\r\n\r\n");
+  delay(10);
+  
+  // Read all the lines of the reply from server and print them to Serial
+  //while(client.available()){
+  //  String line = client.readStringUntil('\r');
+  //  Serial.print(line);
+  //}
+  Serial.print(client.readStringUntil('\r'));
+  
+  Serial.println("<end>");
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  return true;
 }
 
 /*
@@ -529,78 +662,131 @@ bool storeData(const char* URL){
 void initWebServer() {
   server.on("/", handleRoot);
   server.onNotFound(handleNotFound);
-  server.on("/json", handleJSON);
+  
+  // json
+  server.on("/json", [](){
+    serverSendHeaders();
+    server.send(200, "application/json", getJSON());
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  });
+  
+  // mac
   server.on("/mac", HTTP_GET, [](){
-    digitalWrite(activityLed, activityOn);
     serverSendHeaders();
     server.send(200, "text/plain", WiFi.macAddress());
-    digitalWrite(activityLed, activityOff);
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   });
+  
+  // uptime
+  server.on("/uptime", HTTP_GET, [](){
+    serverSendHeaders();
+    server.send(200, "text/plain", getUptime());
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  });
+  
+  // restart
   server.on("/restart", HTTP_GET, [](){
-    digitalWrite(activityLed, activityOn);
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
     if(!server.authenticate(webLogin, webPassword))
       return server.requestAuthentication();
     serverSendHeaders();
     server.send(200, "text/plain", "Restart...");
     ESP.restart();
-    digitalWrite(activityLed, activityOff);
   });
+  
+  // alarm?set=on&wait=300, alarm?set=off
   server.on("/alarm", HTTP_GET, [](){
-    digitalWrite(activityLed, activityOn);
-    String response = String(isAlarm?"1":"0");
-    // get arguments
-    String set = server.arg("set");
-    int wait = atoi(server.arg("wait").c_str());
-    // change status
-    if (set == "on") {
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    // change status if required
+    if (server.arg("set") == "on") {
+      int wait = atoi(server.arg("wait").c_str());
+      int i1 = (server.arg("i1") != "")? atoi(server.arg("i1").c_str()) : -1;
+      int i2 = (server.arg("i2") != "")? atoi(server.arg("i2").c_str()) : -1;
       alarmActive = true;
-      isAlarm = false;
-      isAlarmSent = false;
+      isAlarm = isAlarmSent = false;
       if (wait > 0) {
         alarmInitTime = millis() + wait * 1000;
-        alarmInitState1 = -1; // alarm pins init state
-        alarmInitState2 = -1;
+        alarmInitState1 = i1; // alarm pins init state
+        alarmInitState2 = i2;
       }
     }
-    if (set == "off") {
+    if (server.arg("set") == "off") {
       alarmActive = false;
-      isAlarm = false;
-      isAlarmSent = false;
+      isAlarm = isAlarmSent = false;
     }
-    if (set == "test") {
+    if (server.arg("set") == "test") {
       alarmActive = true;
       isAlarm = true;
     }
     // response
     serverSendHeaders();
+    server.send(200, "text/plain", (isAlarm?"1":"0"));
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  });
+
+  // config
+  server.on("/config", HTTP_GET, [](){
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    serverSendHeaders();
+    server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/config-save'>\n" + nodeConfig.getHTMLFormFields() + "<input type='submit' value='Save' style='margin-top:15px'></form>");
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  });
+ 
+  // config-save
+  server.on("/config-save", HTTP_POST, [](){
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    // handle submit
+    nodeConfig.handleFormSubmit(server);
+    // save
+    String response = "";
+    Serial.println();
+    if (!nodeConfig.save()) {
+      Serial.println("Failed to save config");
+      response = "Failed to save config\n";
+    } else {
+      Serial.println("Config saved");
+      response = "Config saved\n";
+    }
+    // reinit
+    initFromConfig();
+    // response
+    serverSendHeaders();
     server.send(200, "text/plain", response);
-    digitalWrite(activityLed, activityOff);
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   });
 }
 
 void serverSendHeaders() {
-    server.sendHeader("Connection", "close");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.sendHeader("Pragma", "no-cache");
-    server.sendHeader("Expires", "0");
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  server.sendHeader("Connection", "close");
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "0");
 }
 
-void handleJSON() {
-  digitalWrite(activityLed, activityOn);
-
-  String json = getJSON();
-  serverSendHeaders();
-  server.send(200, "application/json", json);
-  
-  digitalWrite(activityLed, activityOff);
+String htmlHeader() {
+  return String("<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'>\r\n")
+    + "<html xmlns='http://www.w3.org/1999/xhtml'>\r\n<head>\r\n"
+    + "<meta http-equiv='Cache-control' content='no-cache'>\r\n"
+    + "<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\r\n"
+    + "<style>body {font-family:sans-serif; font-size:90%; line-height:1.6; color:#555;} input[type=\"text\" i] {padding:1px 4px; border:1px solid #ccc;}</style>\r\n"
+    + "\r\n"
+    + "</head>\r\n<body>\r\n"
+    + "<i style='color:#aaa; font-size:90%;'>Firmware version: " + String(SKETCH_VERSION) + "</i><br>\r\n";
 }
 
 void handleRoot() {
-  digitalWrite(activityLed, activityOn);
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   
-  String temperature1 = getTemperature(&ds18b20);
-  String temperature2 = getTemperature(&ds18b20_2);
+  String temperature1 = getTemperature(&ds18b20, nodeConfig.t1ShiftDelta);
+  String temperature2 = getTemperature(&ds18b20_2, nodeConfig.t2ShiftDelta);
   
   Serial.println();
   Serial.println("Temperature1: " + temperature1);
@@ -615,13 +801,11 @@ void handleRoot() {
   response += "<div style='text-align:center'><h2>Temperature2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
   response += "</body>\r\n</html>\r\n";
   server.send(200, "text/html", response);
-  
-  digitalWrite(activityLed, activityOff);
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
 }
 
 void handleNotFound(){
-  digitalWrite(activityLed, activityOn);
-  
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -634,18 +818,19 @@ void handleNotFound(){
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
-  
-  digitalWrite(activityLed, activityOff);
+  skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
 }
 
 
 void initWebUpdate(){
   server.on("/firmware", HTTP_GET, [](){
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
     if(!server.authenticate(webLogin, webPassword))
       return server.requestAuthentication();
     
     serverSendHeaders();
     server.send(200, "text/html", "<form method='POST' action='/firmware-update' enctype='multipart/form-data'><input type='file' name='update'> <input type='submit' value='Update'></form>");
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   });
   server.on("/firmware-update", HTTP_POST, [](){
     serverSendHeaders();
