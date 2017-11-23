@@ -8,9 +8,13 @@
 *  D7 (GPIO13) - gas/motion sensors
 *  D8 (GPIO15) - buzzer
 *  D0 (GPIO16)
+*
+*  4 pin sensor connector
+*   ||_|
+*   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.20"; // sketch version
+const char* SKETCH_VERSION = "0.9.22"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -72,12 +76,12 @@ const int activityOn = 0;
 const int activityOff = 1;
 
 int markPos = 0; // work animation mark position
-bool alarmActive = false; // alarm check activated (loaded from config)
+//bool alarmActive = false; // alarm check activated (loaded from config)
 bool isAlarm = false; // alarm status
 bool isAlarmSent = false; // alarm sending status
 bool buzzerOn = false; // buzzer on/off
 int alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
-int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state
+int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state (loaded from config)
 int wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 
 bool isExistsWire1 = false;
@@ -95,7 +99,7 @@ bool skipAlarmCheck = false; // up in sending/receiving func and off in the tick
 
 OneWire oneWire1(ONE_WIRE_BUS1);
 OneWire oneWire2(ONE_WIRE_BUS2);
-DallasTemperature ds18b20(&oneWire1);
+DallasTemperature ds18b20_1(&oneWire1);
 DallasTemperature ds18b20_2(&oneWire2);
 
 ESP8266WebServer server(80);
@@ -153,7 +157,7 @@ void setup(void){
 
 
   // setup time to initialize sensors (msec)
-  alarmInitTime = millis() + ALARM_INIT_WAIT * 1000;
+  alarmInitTime = millis() + config.alarmReadyDelay * 1000;
 
   // Prepare sensors
   Serial.println("Sensors:");
@@ -162,32 +166,53 @@ void setup(void){
   display.display();
 
   // termo
+  display.print("T: ");
+  if (oneWire1.reset()) {
+    isExistsWire1 = true;
+    ds18b20_1.begin();
+    Serial.println("DS18B20 1 init done.");
+    display.print("1 ");
+    if (!config.useTermoSensor1) {
+      Serial.println("DS18B20 1 - do not use.");
+    }
+  } else {
+    Serial.println("DS18B20 1 - no sensor.");
+    display.print("n ");
+  }
   if (oneWire2.reset()) {
     isExistsWire2 = true;
     ds18b20_2.begin();
     Serial.println("DS18B20 2 init done.");
-    display.print("t2 ");
+    display.print("2 ");
+    if (!config.useTermoSensor2) {
+      Serial.println("DS18B20 2 - do not use.");
+    }
   } else {
     Serial.println("DS18B20 2 - no sensor.");
-    display.print("-- ");
+    display.print("n ");
   }
-  if (oneWire1.reset()) {
-    isExistsWire1 = true;
-    ds18b20.begin();
-    Serial.println("DS18B20 1 init done.");
-    display.print("t1 ");
-  } else {
-    Serial.println("DS18B20 1 - no sensor.");
-    display.print("-- ");
-  }
-  display.println();
+  display.println("ok");
   display.display();
 
   // initialize the alarm pin as an input:
   pinMode(ALARM_PIN1, INPUT);
   pinMode(ALARM_PIN2, INPUT);
+  display.print("A:");
+  if (config.useAlarmSensor1 && config.alarmInit1 != -1) display.print(" ");
+  if (config.useAlarmSensor1) {
+    display.print(String(config.alarmInit1) + " ");
+  } else {
+    Serial.println("alarm 1 - do not use.");
+    display.print("- ");
+  }
+  if (config.useAlarmSensor2) {
+    display.print(String(config.alarmInit2) + " ");
+  } else {
+    Serial.println("alarm 2 - do not use.");
+    display.print("- ");
+  }
   Serial.println("alarm pins init done.");
-  display.println("Alarm ok");
+  display.println("ok");
   display.display();
 
   // Prepare activity led
@@ -218,7 +243,7 @@ void setup(void){
   getJSON();
   
   // init from config
-  alarmActive = config.alarmActive;
+  //alarmActive = config.alarmActive;
   initFromConfig();
   
   Serial.println();
@@ -252,11 +277,14 @@ void loop(void){
   server.handleClient();
 
   // temperature
-  String temperature = getTemperature(&ds18b20, config.t1ShiftDelta);
+  String temperature1 = (isExistsWire1 && config.useTermoSensor1)? getTemperature(&ds18b20_1, config.t1ShiftDelta) : "--";
+  String temperature2 = (isExistsWire2 && config.useTermoSensor2)? getTemperature(&ds18b20_2, config.t1ShiftDelta) : "--";
 
   // read the state of the alarm sensors
-  int alarm1 = digitalRead(ALARM_PIN1);
-  int alarm2 = digitalRead(ALARM_PIN2);
+  int alarm1 = config.useAlarmSensor1? digitalRead(ALARM_PIN1) : alarmInitState1;
+  int alarm2 = config.useAlarmSensor2? digitalRead(ALARM_PIN2) : alarmInitState2;
+  String a1 = config.useAlarmSensor1? String(alarm1) : "-";
+  String a2 = config.useAlarmSensor2? String(alarm2) : "-";
   
   // alarm pins initialize
   alarmInitWait = alarmInitTime - millis(); // delay before initialize sensors (msec)
@@ -269,7 +297,7 @@ void loop(void){
   }
   
   // alarm check
-  if (alarmActive && alarmInitWait <= 0 && (!skipAlarmCheck || config.alarmSkipDelay == 0)) {
+  if (config.alarmActive && alarmInitWait <= 0 && (!skipAlarmCheck || config.alarmSkipDelay == 0)) {
     if (alarm1 != alarmInitState1 || alarm2 != alarmInitState2) {
       isAlarm = true;
     }
@@ -278,18 +306,21 @@ void loop(void){
   // display
   display.resetDisplay();
   display.println(WiFi.localIP());
-  display.print(String(alarm1) + " " + String(alarm2));
+  display.print(a1 + " " + a2);
   if (alarmInitWait <= 0)
     display.print(" R");
   else
     display.print(String(" ") + String(alarmInitWait));
-  if (alarmActive)
+  if (config.alarmActive)
     display.print(" A");
+  else
+    if (alarmInitWait <= 0 && isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2)
+      display.print(temperature2);
   if (!isAlarm) {
     // show 1st sensor temperature
     display.setCursor(0,28);
     display.setTextSize(2);
-    display.println(isExistsWire1? temperature : "--");
+    display.println((isExistsWire1 && config.useTermoSensor1)? temperature1 : temperature2);
     // busser set off
     if (buzzerOn) {
       noTone(BUZZ_PIN);
@@ -335,6 +366,8 @@ void loop(void){
       if (isAlarmSent && config.alarmTestMode && alarm1 == alarmInitState1 && alarm2 == alarmInitState2) {
         Serial.println("Alarm reset to off");
         isAlarm = isAlarmSent = false;
+        // send off status to store
+        //initDataStoreProcedure(5);
       }
     }
     
@@ -370,15 +403,7 @@ void loop(void){
 void initFromConfig(){
   // init store ticker
   storeTicker.attach(config.dataStoreDelay, [](){
-    tryToStoreData = true;
-    attemptsToStoreData = config.dataStoreAttempts;
-    // activate attempts ticker
-    storeAttemptsTicker.attach(config.dataStoreAttemptsDelay, [](){
-      if (attemptsToStoreData > 0)
-        tryToStoreData = true;
-      else
-        storeAttemptsTicker.detach();
-    });
+    initDataStoreProcedure(config.dataStoreAttempts);
   });
   // init connection ticker
   if (config.iswifiConnectionCheck)
@@ -394,6 +419,21 @@ void initFromConfig(){
     });
   else
     wifiActivityTicker.detach();
+}
+
+/*
+* Initialize data sending ticker and flags
+*/
+void initDataStoreProcedure(int attempts){
+  attemptsToStoreData = attempts;
+  tryToStoreData = true;
+  // init attempts ticker
+  storeAttemptsTicker.attach(config.dataStoreAttemptsDelay, [](){
+    if (attemptsToStoreData > 0)
+      tryToStoreData = true;
+    else
+      storeAttemptsTicker.detach();
+  });
 }
 
 
@@ -527,11 +567,11 @@ bool connectToWiFi() {
 /*
 * Get temperature from sensor
 */
-String getTemperature(DallasTemperature *ds18b20, float shift){
+String getTemperature(DallasTemperature *ds18b20_1, float shift){
   // Polls the sensors
-  ds18b20->requestTemperatures();
+  ds18b20_1->requestTemperatures();
   // Gets first probe on wire in lieu of by address
-  float temperature = ds18b20->getTempCByIndex(0) + shift;
+  float temperature = ds18b20_1->getTempCByIndex(0) + shift;
   return(String(temperature));
 }
 
@@ -558,15 +598,14 @@ String getUptime(){
 */
 String getJSON(){
   String mac = WiFi.macAddress();
-  String temperature1 = (isExistsWire1)? getTemperature(&ds18b20, config.t1ShiftDelta) : "";
-  String temperature2 = (isExistsWire2)? getTemperature(&ds18b20_2, config.t2ShiftDelta) : "";
+  String temperature1 = (isExistsWire1 && config.useTermoSensor1)? getTemperature(&ds18b20_1, config.t1ShiftDelta) : "";
+  String temperature2 = (isExistsWire2 && config.useTermoSensor2)? getTemperature(&ds18b20_2, config.t2ShiftDelta) : "";
   String s_alarm = (isAlarm)? "true" : "false";
-  String s_alarm1 = String(digitalRead(ALARM_PIN1));
-  String s_alarm2 = String(digitalRead(ALARM_PIN2));
+  String s_alarm1 = (config.useAlarmSensor1)? String(digitalRead(ALARM_PIN1)) : "-1";
+  String s_alarm2 = (config.useAlarmSensor2)? String(digitalRead(ALARM_PIN2)) : "-1";
   String s_alarm_init1 = String(alarmInitState1);
   String s_alarm_init2 = String(alarmInitState2);
-  String s_alarm_ready = (alarmInitWait <= 0)? "true" : "false";
-  String s_alarm_active = (alarmActive)? "true" : "false";
+  String s_alarm_active = (config.alarmActive)? "true" : "false";
   String s_alarm_wait = String(alarmInitWait);
   
   Serial.println();
@@ -577,10 +616,8 @@ String getJSON(){
   Serial.println("Alarm2: " + s_alarm2);
   Serial.println("AlarmDefaultState1: " + s_alarm_init1);
   Serial.println("AlarmDefaultState2: " + s_alarm_init2);
-  if (alarmInitWait > 0)
-    Serial.println("AlarmWait: " + s_alarm_wait);
-  Serial.println("AlarmReady: " + s_alarm_ready);
-  Serial.println("AlarmActive: " + s_alarm_active);
+  Serial.println("AlarmWait: " + s_alarm_wait);
+  Serial.println("config.alarmActive: " + s_alarm_active);
   Serial.println("Alarm: " + s_alarm);
   
   String json = "{";
@@ -591,7 +628,6 @@ String getJSON(){
   json += "\"alarm_init1\":" + s_alarm_init1 + ", ";
   json += "\"alarm_init2\":" + s_alarm_init2 + ", ";
   json += "\"alarm_wait\":" + s_alarm_wait + ", ";
-  json += "\"alarm_ready\":" + s_alarm_ready + ", ";
   json += "\"alarm_active\":" + s_alarm_active + ", ";
   json += "\"alarm\":" + s_alarm + ", ";
   json += "\"mac\":\"" + mac + "\", ";
@@ -708,35 +744,58 @@ void initWebServer() {
     ESP.restart();
   });
   
-  // alarm?set=on&wait=300, alarm?set=off
+  // alarm
   server.on("/alarm", HTTP_GET, [](){
     skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
     if(!server.authenticate(webLogin, webPassword))
       return server.requestAuthentication();
-    // change status if required
-    if (server.arg("set") == "on") {
+    serverSendHeaders();
+    server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/alarm-update'>\n"
+      + (config.useAlarmSensor1? (String("Use 1<sup>st</sup> alarm sensor with normal state = ") + ((config.alarmInit1 != -1)? String(config.alarmInit1) : "auto detect") + "<br>\n") : "")
+      + (config.useAlarmSensor2? (String("Use 2<sup>nd</sup> alarm sensor with normal state = ") + ((config.alarmInit2 != -1)? String(config.alarmInit2) : "auto detect") + "<br>\n") : "")
+      + (config.alarmActive? "" : "Delay before activation <input type='text' name='wait' value='300' placeholder='' style='width:40px'> (sec)<br>\n")
+      + "<input name='submit' type='submit' value='" + (config.alarmActive? "Deactivate" : "Activate") + "' style='margin-top:15px'>"
+      + "</form>"
+    );
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+  });
+ 
+  // alarm-update
+  server.on("/alarm-update", HTTP_POST, [](){
+    skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
+    if(!server.authenticate(webLogin, webPassword))
+      return server.requestAuthentication();
+    // handle submit
+    String response = "";
+    if (server.arg("submit") == "Activate") {
       int wait = atoi(server.arg("wait").c_str());
-      int i1 = (server.arg("i1") != "")? atoi(server.arg("i1").c_str()) : -1;
-      int i2 = (server.arg("i2") != "")? atoi(server.arg("i2").c_str()) : -1;
-      alarmActive = true;
-      isAlarm = isAlarmSent = false;
       if (wait > 0) {
         alarmInitTime = millis() + wait * 1000;
-        alarmInitState1 = i1; // alarm pins init state
-        alarmInitState2 = i2;
       }
-    }
-    if (server.arg("set") == "off") {
-      alarmActive = false;
+      config.alarmActive = true;
+      alarmInitState1 = config.alarmInit1; // alarm pins init state
+      alarmInitState2 = config.alarmInit2;
       isAlarm = isAlarmSent = false;
+      Serial.println("Alarm mode activated");
+      response += "Alarm mode activated\n";
+    } else { // Deactivate
+      config.alarmActive = false;
+      isAlarm = isAlarmSent = false;
+      Serial.println("Alarm deactivated");
+      response += "Alarm deactivated\n";
     }
-    if (server.arg("set") == "test") {
-      alarmActive = true;
-      isAlarm = true;
+    // save
+    Serial.println();
+    if (!config.save()) {
+      Serial.println("Failed to save config");
+      response += "Failed to save config\n";
+    } else {
+      Serial.println("Config saved");
+      response += "Config saved\n";
     }
     // response
     serverSendHeaders();
-    server.send(200, "text/plain", (isAlarm?"1":"0"));
+    server.send(200, "text/plain", response);
     skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   });
 
@@ -799,7 +858,7 @@ String htmlHeader() {
 void handleRoot() {
   skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   
-  String temperature1 = getTemperature(&ds18b20, config.t1ShiftDelta);
+  String temperature1 = getTemperature(&ds18b20_1, config.t1ShiftDelta);
   String temperature2 = getTemperature(&ds18b20_2, config.t2ShiftDelta);
   
   Serial.println();
