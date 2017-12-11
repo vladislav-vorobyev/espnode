@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.22"; // sketch version
+const char* SKETCH_VERSION = "0.9.23"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -156,9 +156,6 @@ void setup(void){
   delay(500);
 
 
-  // setup time to initialize sensors (msec)
-  alarmInitTime = millis() + config.alarmReadyDelay * 1000;
-
   // Prepare sensors
   Serial.println("Sensors:");
   display.resetDisplay();
@@ -237,14 +234,15 @@ void setup(void){
   display.println("HTTP server started");
   display.display();
 
+  // init from config
+  Serial.println();
+  Serial.println("Init from config.");
+  initFromConfig();
+  
   // test run of get json
   Serial.println();
   Serial.print("Test JSON:");
   getJSON();
-  
-  // init from config
-  //alarmActive = config.alarmActive;
-  initFromConfig();
   
   Serial.println();
   Serial.println("Initialization finished.");
@@ -419,6 +417,12 @@ void initFromConfig(){
     });
   else
     wifiActivityTicker.detach();
+  // alarm init state
+  alarmInitState1 = config.alarmInit1;
+  alarmInitState2 = config.alarmInit2;
+  isAlarm = isAlarmSent = false;
+  // setup time to initialize sensors (msec)
+  alarmInitTime = millis() + config.alarmReadyDelay * 1000;
 }
 
 /*
