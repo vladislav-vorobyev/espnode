@@ -293,13 +293,14 @@ void loop(void){
   String a2 = config.useAlarmSensor2? String(alarm2) : "-";
   
   // alarm pins initialize
-  alarmInitWait = alarmInitTime - millis(); // delay before initialize sensors (msec)
-  if (alarmInitWait <= 0) {
+  if (alarmInitTime <= millis()) {
     alarmInitWait = 0;
     if (alarmInitState1 < 0)
       alarmInitState1 = alarm1;
     if (alarmInitState2 < 0)
       alarmInitState2 = alarm2;
+  } else {
+    alarmInitWait = alarmInitTime - millis(); // delay before initialize sensors (msec)
   }
   
   // alarm check
