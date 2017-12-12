@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.23"; // sketch version
+const char* SKETCH_VERSION = "0.9.24"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -75,14 +75,14 @@ const int activityLed = LED_BUILTIN;
 const int activityOn = 0;
 const int activityOff = 1;
 
+unsigned long lastMillisValue = 0; // preserve value to catch overflow
 int markPos = 0; // work animation mark position
-//bool alarmActive = false; // alarm check activated (loaded from config)
 bool isAlarm = false; // alarm status
 bool isAlarmSent = false; // alarm sending status
 bool buzzerOn = false; // buzzer on/off
-int alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
+unsigned long alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
 int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state (loaded from config)
-int wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
+unsigned long wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
@@ -256,6 +256,14 @@ void setup(void){
 void loop(void){
   //reset hardware watchdog (~6 sec)
   ESP.wdtDisable();
+
+  // uptime limit ~50 days
+  // restart device if the milliseconds overflow reached
+  if (millis() < lastMillisValue) {
+    Serial.println("Restarting due the milliseconds limit");
+    ESP.restart();
+  }
+  lastMillisValue = millis();
 
   //wifi check
   if (WiFi.status() == WL_CONNECTED && tryToCheckConnection) {
@@ -584,7 +592,7 @@ String getTemperature(DallasTemperature *ds18b20_1, float shift){
 * Get uptime as string
 */
 String getUptime(){
-  int msec = millis();
+  unsigned long msec = millis();
   int days = int(msec / (1000*60*60*24));
   msec = msec % (1000*60*60*24);
   int hours = int(msec / (1000*60*60));
