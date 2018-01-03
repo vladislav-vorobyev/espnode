@@ -27,6 +27,9 @@ public:
   bool iswifiConnectionCheck; // is make a ping the local wifi server to recheck connection
   String wifiRouterIP; // url to check wifi
   String raspberryURL; // local store url
+  bool tControlActive; // is term control relay active
+  float tControlMin; // min temperature (set relay on)
+  float tControlMax; // max temperature (set relay off)
 
   NodeConfig(){
     // set default values
@@ -49,6 +52,9 @@ public:
     iswifiConnectionCheck = false;
     wifiRouterIP = "";
     raspberryURL = "http://192.168.0.4/data.php";
+    tControlActive = false;
+    tControlMin = 0;
+    tControlMax = 0;
   }
   
   void read(const char* name, JsonObject& json, bool& var);
@@ -151,6 +157,9 @@ bool NodeConfig::load() {
   read("storeURL", json, storeURL);
   read("iswifiConnectionCheck", json, iswifiConnectionCheck);
   read("wifiRouterIP", json, wifiRouterIP);
+  read("tControlActive", json, tControlActive);
+  read("tControlMin", json, tControlMin);
+  read("tControlMax", json, tControlMax);
 
   return true;
 }
@@ -181,6 +190,9 @@ bool NodeConfig::save() {
   json["storeURL"] = storeURL;
   json["iswifiConnectionCheck"] = iswifiConnectionCheck;
   json["wifiRouterIP"] = wifiRouterIP;
+  json["tControlActive"] = tControlActive;
+  json["tControlMin"] = tControlMin;
+  json["tControlMax"] = tControlMax;
 
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile) {
@@ -217,6 +229,9 @@ String NodeConfig::getHTMLFormFields() {
   response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:200px'> store URL<br>\n";
   response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> check connection to WiFi router<br>\n";
   response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:200px'> WiFi router IP<br>\n";
+  response += "<input type='checkbox' name='tControlActive' value=1 " + String(tControlActive? "checked" : "") + "> activate temperature control<br>\n";
+  response += "min <input type='text' name='tControlMin' value='" + String(tControlMin) + "' style='width:60px'>\n";
+  response += "and max <input type='text' name='tControlMax' value='" + String(tControlMax) + "' style='width:60px'><br>\n";
   return response;
 }
 
@@ -245,5 +260,8 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   storeURL = server.arg("storeURL");
   iswifiConnectionCheck = server.arg("iswifiConnectionCheck")!="";
   wifiRouterIP = server.arg("wifiRouterIP");
+  tControlActive = server.arg("tControlActive")!="";
+  tControlMin = ((val = server.arg("tControlMin")) != "")? atof(val.c_str()) : 0;
+  tControlMax = ((val = server.arg("tControlMax")) != "")? atof(val.c_str()) : 0;
 }
 

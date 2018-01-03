@@ -7,14 +7,14 @@
 *  D6 (GPIO12) - gas/motion sensors
 *  D7 (GPIO13) - gas/motion sensors
 *  D8 (GPIO15) - buzzer
-*  D0 (GPIO16)
+*  D0 (GPIO16) - relay (termo control)
 *
 *  4 pin sensor connector
 *   ||_|
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.24"; // sketch version
+const char* SKETCH_VERSION = "0.9.25"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -23,6 +23,7 @@ const char* SKETCH_VERSION = "0.9.24"; // sketch version
 #define ALARM_PIN2 13  // Alarm 2nd sensor pin
 #define BUZZ_PIN 15 // Buzzer pin
 #define BUZZ_TONE 1000 // Buzzer tone
+#define RELAY_PIN 16 // Relay pin
 
 #define WIFI_CONNECTING_WAIT 10 // time to wait for connecting to WiFi (sec)
 #define WIFI_RECONNECT_DELAY 30 // time to wait before reconnecting to WiFi (sec)
@@ -212,7 +213,9 @@ void setup(void){
   display.println("ok");
   display.display();
 
-  // Prepare activity led
+  // Prepare activity led and relay as output
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, 0);
   pinMode(activityLed, OUTPUT);
   digitalWrite(activityLed, activityOn);
   Serial.println("activity led init done.");
@@ -283,8 +286,28 @@ void loop(void){
   server.handleClient();
 
   // temperature
-  String temperature1 = (isExistsWire1 && config.useTermoSensor1)? getTemperature(&ds18b20_1, config.t1ShiftDelta) : "--";
-  String temperature2 = (isExistsWire2 && config.useTermoSensor2)? getTemperature(&ds18b20_2, config.t1ShiftDelta) : "--";
+  float t1 = 0, t2 = 0, t0 = 0;
+  String temperature1 = "--", temperature2 = "--";
+  if (isExistsWire2 && config.useTermoSensor2) {
+    t0 = t2 = getTemperature(&ds18b20_2, config.t2ShiftDelta);
+    temperature2 = String(t2);
+  }
+  if (isExistsWire1 && config.useTermoSensor1) {
+    t0 = t1 = getTemperature(&ds18b20_1, config.t1ShiftDelta);
+    temperature1 = String(t1);
+  }
+
+  // temperatire control
+  if (config.tControlActive) {
+    if (t0 < config.tControlMin) {
+      Serial.println("Switch relay on");
+      digitalWrite(RELAY_PIN, 1);
+    }
+    if (t0 > config.tControlMax) {
+      Serial.println("Switch relay off");
+      digitalWrite(RELAY_PIN, 0);
+    }
+  }
 
   // read the state of the alarm sensors
   int alarm1 = config.useAlarmSensor1? digitalRead(ALARM_PIN1) : alarmInitState1;
@@ -292,7 +315,7 @@ void loop(void){
   String a1 = config.useAlarmSensor1? String(alarm1) : "-";
   String a2 = config.useAlarmSensor2? String(alarm2) : "-";
   
-  // alarm pins initialize
+  // alarm states initialize
   if (alarmInitTime <= millis()) {
     alarmInitWait = 0;
     if (alarmInitState1 < 0)
@@ -313,16 +336,19 @@ void loop(void){
   // display
   display.resetDisplay();
   display.println(WiFi.localIP());
+  display.setCursor(0,16);
   display.print(a1 + " " + a2);
-  if (alarmInitWait <= 0)
-    display.print(" R");
-  else
+  if (alarmInitWait > 0) {
     display.print(String(" ") + String(alarmInitWait));
-  if (config.alarmActive)
-    display.print(" A");
-  else
-    if (alarmInitWait <= 0 && isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2)
-      display.print(temperature2);
+  } else {
+    if (config.alarmActive) {
+      display.print(" AA");
+    } else {
+      if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
+        display.print(String(" ") + String(temperature2));
+      }
+    }
+  }
   if (!isAlarm) {
     // show 1st sensor temperature
     display.setCursor(0,28);
@@ -432,6 +458,8 @@ void initFromConfig(){
   isAlarm = isAlarmSent = false;
   // setup time to initialize sensors (msec)
   alarmInitTime = millis() + config.alarmReadyDelay * 1000;
+  // set relay off
+  digitalWrite(RELAY_PIN, 0);
 }
 
 /*
@@ -580,12 +608,12 @@ bool connectToWiFi() {
 /*
 * Get temperature from sensor
 */
-String getTemperature(DallasTemperature *ds18b20_1, float shift){
+float getTemperature(DallasTemperature *ds18b20_1, float shift){
   // Polls the sensors
   ds18b20_1->requestTemperatures();
   // Gets first probe on wire in lieu of by address
   float temperature = ds18b20_1->getTempCByIndex(0) + shift;
-  return(String(temperature));
+  return(temperature);
 }
 
 
@@ -611,8 +639,8 @@ String getUptime(){
 */
 String getJSON(){
   String mac = WiFi.macAddress();
-  String temperature1 = (isExistsWire1 && config.useTermoSensor1)? getTemperature(&ds18b20_1, config.t1ShiftDelta) : "";
-  String temperature2 = (isExistsWire2 && config.useTermoSensor2)? getTemperature(&ds18b20_2, config.t2ShiftDelta) : "";
+  String temperature1 = (isExistsWire1 && config.useTermoSensor1)? String(getTemperature(&ds18b20_1, config.t1ShiftDelta)) : "";
+  String temperature2 = (isExistsWire2 && config.useTermoSensor2)? String(getTemperature(&ds18b20_2, config.t2ShiftDelta)) : "";
   String s_alarm = (isAlarm)? "true" : "false";
   String s_alarm1 = (config.useAlarmSensor1)? String(digitalRead(ALARM_PIN1)) : "-1";
   String s_alarm2 = (config.useAlarmSensor2)? String(digitalRead(ALARM_PIN2)) : "-1";
@@ -865,14 +893,14 @@ String htmlHeader() {
     + "<style>body {font-family:sans-serif; font-size:90%; line-height:1.6; color:#555;} input[type=\"text\" i] {padding:1px 4px; border:1px solid #ccc;}</style>\r\n"
     + "\r\n"
     + "</head>\r\n<body>\r\n"
-    + "<i style='color:#aaa; font-size:90%;'>Firmware version: " + String(SKETCH_VERSION) + "</i><br>\r\n";
+    + "<i style='color:#aaa; font-size:90%;'>Firmware version: " + String(SKETCH_VERSION) + " (<a style='color:#aaa;' href='/firmware'>update</a>)</i><br>\r\n";
 }
 
 void handleRoot() {
   skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   
-  String temperature1 = getTemperature(&ds18b20_1, config.t1ShiftDelta);
-  String temperature2 = getTemperature(&ds18b20_2, config.t2ShiftDelta);
+  String temperature1 = String(getTemperature(&ds18b20_1, config.t1ShiftDelta));
+  String temperature2 = String(getTemperature(&ds18b20_2, config.t2ShiftDelta));
   
   Serial.println();
   Serial.println("Temperature1: " + temperature1);
