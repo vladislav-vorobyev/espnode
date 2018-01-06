@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.25"; // sketch version
+const char* SKETCH_VERSION = "0.9.26"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -84,6 +84,7 @@ bool buzzerOn = false; // buzzer on/off
 unsigned long alarmInitTime, alarmInitWait; // time, delay to initialize sensors (msec)
 int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state (loaded from config)
 unsigned long wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
+bool isRelayOn = false; // relay status
 
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
@@ -164,53 +165,52 @@ void setup(void){
   display.display();
 
   // termo
-  display.print("T: ");
   if (oneWire1.reset()) {
     isExistsWire1 = true;
     ds18b20_1.begin();
-    Serial.println("DS18B20 1 init done.");
-    display.print("1 ");
+    Serial.println("DS18B20 1 sensor init done.");
     if (!config.useTermoSensor1) {
-      Serial.println("DS18B20 1 - do not use.");
+      Serial.println("DS18B20 1 - off.");
+      display.println("t1 - off");
+    } else {
+      display.println("t1 - ok");
     }
   } else {
     Serial.println("DS18B20 1 - no sensor.");
-    display.print("n ");
+    display.println("t1 - no");
   }
   if (oneWire2.reset()) {
     isExistsWire2 = true;
     ds18b20_2.begin();
-    Serial.println("DS18B20 2 init done.");
-    display.print("2 ");
+    Serial.println("DS18B20 2 sensor init done.");
     if (!config.useTermoSensor2) {
-      Serial.println("DS18B20 2 - do not use.");
+      Serial.println("DS18B20 2 - off.");
+      display.println("t2 - off");
+    } else {
+      display.println("t2 - ok");
     }
   } else {
     Serial.println("DS18B20 2 - no sensor.");
-    display.print("n ");
+    display.println("t2 - no");
   }
-  display.println("ok");
   display.display();
 
   // initialize the alarm pin as an input:
   pinMode(ALARM_PIN1, INPUT);
   pinMode(ALARM_PIN2, INPUT);
-  display.print("A:");
-  if (config.useAlarmSensor1 && config.alarmInit1 != -1) display.print(" ");
   if (config.useAlarmSensor1) {
-    display.print(String(config.alarmInit1) + " ");
+    display.println(String("a1 = ") + String(config.alarmInit2));
   } else {
-    Serial.println("alarm 1 - do not use.");
-    display.print("- ");
+    Serial.println("alarm 1 - off.");
+    display.println("a1 - off");
   }
   if (config.useAlarmSensor2) {
-    display.print(String(config.alarmInit2) + " ");
+    display.println(String("a2 = ") + String(config.alarmInit2));
   } else {
-    Serial.println("alarm 2 - do not use.");
-    display.print("- ");
+    Serial.println("alarm 2 - off.");
+    display.println("a2 - off");
   }
   Serial.println("alarm pins init done.");
-  display.println("ok");
   display.display();
 
   // Prepare activity led and relay as output
@@ -221,7 +221,7 @@ void setup(void){
   Serial.println("activity led init done.");
   display.println("Led ok");
   display.display();
-  delay(500);
+  delay(1000);
 
   // Connect to WiFi network
   if (!connectToWiFi()) {
@@ -234,7 +234,7 @@ void setup(void){
   initWebUpdate();
   server.begin();
   Serial.println("HTTP server started");
-  display.println("HTTP server started");
+  display.println("HTTP serv started");
   display.display();
 
   // init from config
@@ -302,10 +302,12 @@ void loop(void){
     if (t0 < config.tControlMin) {
       Serial.println("Switch relay on");
       digitalWrite(RELAY_PIN, 1);
+      isRelayOn = true;
     }
     if (t0 > config.tControlMax) {
       Serial.println("Switch relay off");
       digitalWrite(RELAY_PIN, 0);
+      isRelayOn = false;
     }
   }
 
@@ -341,12 +343,14 @@ void loop(void){
   if (alarmInitWait > 0) {
     display.print(String(" ") + String(alarmInitWait));
   } else {
-    if (config.alarmActive) {
-      display.print(" AA");
+    if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
+      display.print(String(" ") + String(temperature2));
+      display.setCursor(50,8);
     } else {
-      if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
-        display.print(String(" ") + String(temperature2));
-      }
+      display.setCursor(50,16);
+    }
+    if (config.alarmActive) {
+      display.print("AA");
     }
   }
   if (!isAlarm) {
@@ -374,6 +378,13 @@ void loop(void){
       tone(BUZZ_PIN, BUZZ_TONE);
       buzzerOn = true;
     }
+  }
+  // relay status
+  if (isRelayOn) {
+    display.drawPixel(59, 46, WHITE);
+    display.drawPixel(58, 47, WHITE);
+    display.drawPixel(59, 47, WHITE);
+    display.drawPixel(60, 47, WHITE);
   }
   
   // animation to show activity
