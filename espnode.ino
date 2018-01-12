@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.26"; // sketch version
+const char* SKETCH_VERSION = "0.9.27"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -343,15 +343,22 @@ void loop(void){
   if (alarmInitWait > 0) {
     display.print(String(" ") + String(alarmInitWait));
   } else {
-    if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
-      display.print(String(" ") + String(temperature2));
-      display.setCursor(50,8);
-    } else {
-      display.setCursor(50,16);
+    int activatedPosY;
+    String activatedBehavior = "";
+    if (config.tControlActive) {
+      activatedBehavior += " TC";
     }
     if (config.alarmActive) {
-      display.print("AA");
+      activatedBehavior += " AA";
     }
+    if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
+      display.print(String(" ") + String(temperature2));
+      activatedPosY = 8;
+    } else {
+      activatedPosY = 16;
+    }
+    display.setCursor(64-6*activatedBehavior.length(), activatedPosY);
+    display.print(activatedBehavior);
   }
   if (!isAlarm) {
     // show 1st sensor temperature
@@ -381,14 +388,15 @@ void loop(void){
   }
   // relay status
   if (isRelayOn) {
-    display.drawPixel(59, 46, WHITE);
-    display.drawPixel(58, 47, WHITE);
-    display.drawPixel(59, 47, WHITE);
-    display.drawPixel(60, 47, WHITE);
+    int xp = 62, yp = 47;
+    display.drawPixel(xp, yp-1, WHITE);
+    display.drawPixel(xp-1, yp, WHITE);
+    display.drawPixel(xp, yp, WHITE);
+    display.drawPixel(xp+1, yp, WHITE);
   }
   
   // animation to show activity
-  int pos = 4 + markPos * 6;
+  int pos = 1 + markPos * 6;
   display.drawPixel(pos, 47, WHITE);
   display.drawPixel(pos+1, 47, WHITE);
   display.drawPixel(pos+2, 47, WHITE);
@@ -471,6 +479,7 @@ void initFromConfig(){
   alarmInitTime = millis() + config.alarmReadyDelay * 1000;
   // set relay off
   digitalWrite(RELAY_PIN, 0);
+  isRelayOn = false;
 }
 
 /*
