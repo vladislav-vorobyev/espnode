@@ -210,28 +210,28 @@ bool NodeConfig::save() {
 String NodeConfig::getHTMLFormFields() {
   String response = "";
   response += "<input type='checkbox' name='useTermoSensor1' value=1 " + String(useTermoSensor1? "checked" : "") + "> use 1<sup>st</sup> temperature sensor with\n";
-  response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:60px'> shift<br>\n";
+  response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:4em'> shift<br>\n";
   response += "<input type='checkbox' name='useTermoSensor2' value=1 " + String(useTermoSensor2? "checked" : "") + "> use 2<sup>nd</sup> temperature sensor with\n";
-  response += "<input type='text' name='t2ShiftDelta' value='" + String(t2ShiftDelta) + "' style='width:60px'> shift<br>\n";
+  response += "<input type='text' name='t2ShiftDelta' value='" + String(t2ShiftDelta) + "' style='width:4em'> shift<br>\n";
   response += "<input type='checkbox' name='useAlarmSensor1' value=1 " + String(useAlarmSensor1? "checked" : "") + "> use 1<sup>st</sup> alarm sensor with\n";
-  response += "normal state = <input type='text' name='alarmInit1' value='" + ((alarmInit1 != -1)? String(alarmInit1) : "") + "' placeholder='auto detect' style='width:30px'><br>\n";
+  response += "normal state = <input type='text' name='alarmInit1' value='" + ((alarmInit1 != -1)? String(alarmInit1) : "") + "' placeholder='auto detect' style='width:2em'><br>\n";
   response += "<input type='checkbox' name='useAlarmSensor2' value=1 " + String(useAlarmSensor2? "checked" : "") + "> use 2<sup>nd</sup> alarm sensor with\n";
-  response += "normal state = <input type='text' name='alarmInit2' value='" + ((alarmInit2 != -1)? String(alarmInit2) : "") + "' placeholder='auto detect' style='width:30px'><br>\n";
+  response += "normal state = <input type='text' name='alarmInit2' value='" + ((alarmInit2 != -1)? String(alarmInit2) : "") + "' placeholder='auto detect' style='width:2em'><br>\n";
   response += "<input type='checkbox' name='alarmActive' value=1 " + String(alarmActive? "checked" : "") + "> alarm check activated<br>\n";
   response += "<input type='checkbox' name='alarmTestMode' value=1 " + String(alarmTestMode? "checked" : "") + "> alarm test mode <br>\n";
-  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:60px'> wait from start before alarm sensor will be ready (sec)<br>\n";
-  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:60px'> delay between WiFi activity and alarm check (sec)<br>\n";
-  response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:60px'> store delay (sec)<br>\n";
-  response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:60px'> store attempts<br>\n";
-  response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:60px'> store attempts delay (sec)<br>\n";
-  response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:200px'> store login<br>\n";
-  response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:200px'> store password<br>\n";
-  response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:200px'> store URL<br>\n";
+  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:4em'> wait from start before alarm sensor will be ready (sec)<br>\n";
+  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:4em'> delay between WiFi activity and alarm check (sec)<br>\n";
+  response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:4em'> store delay (sec)<br>\n";
+  response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:4em'> store attempts<br>\n";
+  response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:4em'> store attempts delay (sec)<br>\n";
+  response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:15em'> store login<br>\n";
+  response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:15em'> store password<br>\n";
+  response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:15em'> store URL<br>\n";
   response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> check connection to WiFi router<br>\n";
-  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:200px'> WiFi router IP<br>\n";
+  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:15em'> WiFi router IP<br>\n";
   response += "<input type='checkbox' name='tControlActive' value=1 " + String(tControlActive? "checked" : "") + "> activate temperature control<br>\n";
-  response += "min <input type='text' name='tControlMin' value='" + String(tControlMin) + "' style='width:60px'>\n";
-  response += "and max <input type='text' name='tControlMax' value='" + String(tControlMax) + "' style='width:60px'><br>\n";
+  response += "min <input type='text' name='tControlMin' value='" + String(tControlMin) + "' style='width:4em'>\n";
+  response += "and max <input type='text' name='tControlMax' value='" + String(tControlMax) + "' style='width:4em'><br>\n";
   return response;
 }
 

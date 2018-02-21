@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "0.9.27"; // sketch version
+const char* SKETCH_VERSION = "0.9.28"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -866,7 +866,8 @@ void initWebServer() {
     if(!server.authenticate(webLogin, webPassword))
       return server.requestAuthentication();
     serverSendHeaders();
-    server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/config-save'>\n" + config.getHTMLFormFields() + "<input type='submit' value='Save' style='margin-top:15px'></form>");
+    server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/config-save'>\n" + config.getHTMLFormFields()
+      + "<input type='submit' value='Save' style='margin:1.5em 0; padding:.15em .9em;'></form>");
     skipAlarmCheck = true; // up in sending/receiving func and off in the ticker
   });
  
@@ -910,10 +911,16 @@ String htmlHeader() {
     + "<html xmlns='http://www.w3.org/1999/xhtml'>\r\n<head>\r\n"
     + "<meta http-equiv='Cache-control' content='no-cache'>\r\n"
     + "<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\r\n"
-    + "<style>body {font-family:sans-serif; font-size:90%; line-height:1.6; color:#555;} input[type=\"text\" i] {padding:1px 4px; border:1px solid #ccc;}</style>\r\n"
+    + "<style>\r\n"
+    + "body { font-family:sans-serif; font-size:90%; line-height:1.6; color:#555; }\r\n"
+    + "input { font-size:.9em; line-height:1.2; }\r\n"
+    + "input[type=\"checkbox\"] { height:1em; width:1em; vertical-align:middle; }\r\n"
+    + "input[type=\"text\" i] { padding:.1em .3em; border:1px solid #ccc; }\r\n"
+    + "@media screen and (max-width: 1200px) { body { font-size:250%; } }\r\n"
+    + "</style>\r\n"
     + "\r\n"
     + "</head>\r\n<body>\r\n"
-    + "<i style='color:#aaa; font-size:90%;'>Firmware version: " + String(SKETCH_VERSION) + " (<a style='color:#aaa;' href='/firmware'>update</a>)</i><br>\r\n";
+    + "<i style='color:#aaa; font-size:90%;'>Firmware version: " + String(SKETCH_VERSION) + " (<a style='color:#aaa;' href='/firmware'>update</a>) | <a style='color:#aaa;' href='/json'>&lt;json&gt;</a></i><br>\r\n";
 }
 
 void handleRoot() {
@@ -929,8 +936,19 @@ void handleRoot() {
   serverSendHeaders();
   String response = "<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n";
   response += "<meta http-equiv='Cache-control' content='no-cache'>\r\n";
-  response += "<style>@media screen and (max-width: 1200px){h1{font-size:14em}h2{font-size:5em}}</style>\r\n";
+  response += "<style>@media screen and (max-width: 1200px){body{font-size:300%}}</style>\r\n";
   response += "</head>\r\n<body>\r\n";
+  response += "<style>.gear {width:.7em; height:.7em; border-radius:1em; border:.15em solid #555; position: absolute;}</style>\r\n";
+  response += "<a href='/config'><div style='width:1em; height:1em; border-radius:1em; overflow:hidden; position:fixed; top:1em; right:1em;'>\r\n";
+  response += "<div class='gear' style='top:.45em; left:.45em;'></div>\r\n";
+  response += "<div class='gear' style='top:-.45em; left:.45em;'></div>\r\n";
+  response += "<div class='gear' style='top:.45em; left:-.45em;'></div>\r\n";
+  response += "<div class='gear' style='top:-.45em; left:-.45em;'></div>\r\n";
+  response += "<div class='gear' style='top:0; left:.63em;'></div>\r\n";
+  response += "<div class='gear' style='top:0; left:-.63em;'></div>\r\n";
+  response += "<div class='gear' style='top:.63em; left:0;'></div>\r\n";
+  response += "<div class='gear' style='top:-.63em; left:0;'></div>\r\n";
+  response += "</div></a>\r\n";
   response += "<div style='text-align:center'><h2>Temperature1:</h2><h1>" + temperature1 + "</h1></div>\r\n";
   response += "<div style='text-align:center'><h2>Temperature2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
   response += "</body>\r\n</html>\r\n";
