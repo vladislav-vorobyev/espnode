@@ -6,6 +6,7 @@ class NodeConfig {
 private:
   StaticJsonBuffer<1024> jsonBuffer;
 public:
+  String hostname; // self host name
   bool useTermoSensor1; // user 1st temperature sensor
   bool useTermoSensor2; // user 2nd temperature sensor
   bool useAlarmSensor1; // user 1st alarm sensor
@@ -15,24 +16,28 @@ public:
   int8_t alarmInit1; // 1st alarm sensor init state value (set -1 to auto detect)
   int8_t alarmInit2; // 2nd alarm sensor init state value (set -1 to auto detect)
   bool alarmActive; // is alarm check activated
-  bool alarmTestMode; // is alarm test mode
+  bool alarmAutoMode; // is alarm automatic switch mode
   int alarmReadyDelay; // time to wait from start before initialize alarm pin normal state and be ready for alarm (sec)
-  int alarmSkipDelay; // delay between WiFi activity and alarm sensors check (sec)
+  int alarmSkipDelay; // delay between alarm sending (sec)
   int dataStoreDelay; // delay between send data to hosting (sec)
   int dataStoreAttempts; // attempts to resending if failed
   int dataStoreAttemptsDelay; // delay between attempts to resend (sec)
   String storeLogin; // store data page access
   String storePassword;
   String storeURL; // hosting
+  String storeLocalURL; // local server
   bool iswifiConnectionCheck; // is make a ping the local wifi server to recheck connection
   String wifiRouterIP; // url to check wifi
-  String raspberryURL; // local store url
-  bool tControlActive; // is term control relay active
+  bool tControlActive; // is temperature control relay active
   float tControlMin; // min temperature (set relay on)
   float tControlMax; // max temperature (set relay off)
+  bool tAlarmActive; // is temperature alarm active
+  float tAlarmMin1; // min temperature to alarm (set -127 to off)
+  float tAlarmMin2; // min temperature to alarm (set -127 to off)
 
   NodeConfig(){
     // set default values
+    hostname = "";
     useTermoSensor1 = true;
     useTermoSensor2 = true;
     useAlarmSensor1 = true;
@@ -40,21 +45,24 @@ public:
     t1ShiftDelta = t2ShiftDelta = 0;
     alarmInit1 = alarmInit2 = -1;
     alarmActive = false;
-    alarmTestMode = false;
+    alarmAutoMode = false;
     alarmReadyDelay = ALARM_INIT_WAIT;
     alarmSkipDelay = 0;
     dataStoreDelay = DATA_STORE_DEFAULT_DELAY;
     dataStoreAttempts = ATTEMPTS_TO_STORE_DATA;
     dataStoreAttemptsDelay = ATTEMPTS_DEFAULT_DELAY;
-    storeLogin = "esp8266";
+    storeLogin = "esp";
     storePassword = "123";
-    storeURL = "http://vvvnet.ru/home/data.php";
+    storeURL = "";
+    storeLocalURL = "";
     iswifiConnectionCheck = false;
     wifiRouterIP = "";
-    raspberryURL = "http://192.168.0.4/data.php";
     tControlActive = false;
     tControlMin = 0;
     tControlMax = 0;
+    tAlarmActive = false;
+    tAlarmMin1 = -127;
+    tAlarmMin2 = -127;
   }
   
   void read(const char* name, JsonObject& json, bool& var);
@@ -137,6 +145,7 @@ bool NodeConfig::load() {
   }
 
   // read variables
+  read("hostname", json, hostname);
   read("useTermoSensor1", json, useTermoSensor1);
   read("useTermoSensor2", json, useTermoSensor2);
   read("useAlarmSensor1", json, useAlarmSensor1);
@@ -146,7 +155,7 @@ bool NodeConfig::load() {
   read("alarmInit1", json, alarmInit1);
   read("alarmInit2", json, alarmInit2);
   read("alarmActive", json, alarmActive);
-  read("alarmTestMode", json, alarmTestMode);
+  read("alarmAutoMode", json, alarmAutoMode);
   read("alarmReadyDelay", json, alarmReadyDelay);
   read("alarmSkipDelay", json, alarmSkipDelay);
   read("dataStoreDelay", json, dataStoreDelay);
@@ -155,11 +164,15 @@ bool NodeConfig::load() {
   read("storeLogin", json, storeLogin);
   read("storePassword", json, storePassword);
   read("storeURL", json, storeURL);
+  //read("storeLocalURL", json, storeLocalURL);
   read("iswifiConnectionCheck", json, iswifiConnectionCheck);
   read("wifiRouterIP", json, wifiRouterIP);
   read("tControlActive", json, tControlActive);
   read("tControlMin", json, tControlMin);
   read("tControlMax", json, tControlMax);
+  read("tAlarmActive", json, tAlarmActive);
+  read("tAlarmMin1", json, tAlarmMin1);
+  read("tAlarmMin2", json, tAlarmMin2);
 
   return true;
 }
@@ -168,8 +181,9 @@ bool NodeConfig::load() {
 * Save Config
 */
 bool NodeConfig::save() {
-  StaticJsonBuffer<1024> jsonBuffer;
+  StaticJsonBuffer<2048> jsonBuffer;
   JsonObject& json = jsonBuffer.createObject();
+  json["hostname"] = hostname;
   json["useTermoSensor1"] = useTermoSensor1;
   json["useTermoSensor2"] = useTermoSensor2;
   json["useAlarmSensor1"] = useAlarmSensor1;
@@ -179,7 +193,7 @@ bool NodeConfig::save() {
   json["alarmInit1"] = alarmInit1;
   json["alarmInit2"] = alarmInit2;
   json["alarmActive"] = alarmActive;
-  json["alarmTestMode"] = alarmTestMode;
+  json["alarmAutoMode"] = alarmAutoMode;
   json["alarmReadyDelay"] = alarmReadyDelay;
   json["alarmSkipDelay"] = alarmSkipDelay;
   json["dataStoreDelay"] = dataStoreDelay;
@@ -188,11 +202,15 @@ bool NodeConfig::save() {
   json["storeLogin"] = storeLogin;
   json["storePassword"] = storePassword;
   json["storeURL"] = storeURL;
+  //json["storeLocalURL"] = storeLocalURL;
   json["iswifiConnectionCheck"] = iswifiConnectionCheck;
   json["wifiRouterIP"] = wifiRouterIP;
   json["tControlActive"] = tControlActive;
   json["tControlMin"] = tControlMin;
   json["tControlMax"] = tControlMax;
+  json["tAlarmActive"] = tAlarmActive;
+  json["tAlarmMin1"] = tAlarmMin1;
+  json["tAlarmMin2"] = tAlarmMin2;
 
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile) {
@@ -209,6 +227,8 @@ bool NodeConfig::save() {
 */
 String NodeConfig::getHTMLFormFields() {
   String response = "";
+  response += "<input type='text' name='hostname' value='" + String(hostname) + "' style='width:10em'> host name\n";
+  response += "<i class='info'>(" + WiFi.macAddress() + ")</i><br>\n";
   response += "<input type='checkbox' name='useTermoSensor1' value=1 " + String(useTermoSensor1? "checked" : "") + "> use 1<sup>st</sup> temperature sensor with\n";
   response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:4em'> shift<br>\n";
   response += "<input type='checkbox' name='useTermoSensor2' value=1 " + String(useTermoSensor2? "checked" : "") + "> use 2<sup>nd</sup> temperature sensor with\n";
@@ -218,15 +238,19 @@ String NodeConfig::getHTMLFormFields() {
   response += "<input type='checkbox' name='useAlarmSensor2' value=1 " + String(useAlarmSensor2? "checked" : "") + "> use 2<sup>nd</sup> alarm sensor with\n";
   response += "normal state = <input type='text' name='alarmInit2' value='" + ((alarmInit2 != -1)? String(alarmInit2) : "") + "' placeholder='auto detect' style='width:2em'><br>\n";
   response += "<input type='checkbox' name='alarmActive' value=1 " + String(alarmActive? "checked" : "") + "> alarm check activated<br>\n";
-  response += "<input type='checkbox' name='alarmTestMode' value=1 " + String(alarmTestMode? "checked" : "") + "> alarm test mode <br>\n";
-  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:4em'> wait from start before alarm sensor will be ready (sec)<br>\n";
-  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:4em'> delay between WiFi activity and alarm check (sec)<br>\n";
+  response += "<input type='checkbox' name='tAlarmActive' value=1 " + String(tAlarmActive? "checked" : "") + "> temperature alarm activated<br>\n";
+  response += "t1 min <input type='text' name='tAlarmMin1' value='" + ((tAlarmMin1 != -127)? String(tAlarmMin1) : "") + "' style='width:4em'>\n";
+  response += "t2 min <input type='text' name='tAlarmMin2' value='" + ((tAlarmMin2 != -127)? String(tAlarmMin2) : "") + "' style='width:4em'><br>\n";
+  response += "<input type='checkbox' name='alarmAutoMode' value=1 " + String(alarmAutoMode? "checked" : "") + "> alarm auto mode <br>\n";
+  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:4em'> wait before alarm sensor will be ready (sec)<br>\n";
+  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:4em'> delay between alarm sending (sec)<br>\n";
   response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:4em'> store delay (sec)<br>\n";
   response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:4em'> store attempts<br>\n";
   response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:4em'> store attempts delay (sec)<br>\n";
   response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:15em'> store login<br>\n";
   response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:15em'> store password<br>\n";
   response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:15em'> store URL<br>\n";
+  //response += "<input type='text' name='storeLocalURL' value='" + String(storeLocalURL) + "' style='width:15em'> local server URL<br>\n";
   response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> check connection to WiFi router<br>\n";
   response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:15em'> WiFi router IP<br>\n";
   response += "<input type='checkbox' name='tControlActive' value=1 " + String(tControlActive? "checked" : "") + "> activate temperature control<br>\n";
@@ -240,6 +264,7 @@ String NodeConfig::getHTMLFormFields() {
 */
 void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   String val;
+  hostname = server.arg("hostname");
   useTermoSensor1 = server.arg("useTermoSensor1")!="";
   useTermoSensor2 = server.arg("useTermoSensor2")!="";
   useAlarmSensor1 = server.arg("useAlarmSensor1")!="";
@@ -249,7 +274,7 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   alarmInit1 = ((val = server.arg("alarmInit1")) != "")? atoi(val.c_str()) : -1;
   alarmInit2 = ((val = server.arg("alarmInit2")) != "")? atoi(val.c_str()) : -1;
   alarmActive = server.arg("alarmActive")!="";
-  alarmTestMode = server.arg("alarmTestMode")!="";
+  alarmAutoMode = server.arg("alarmAutoMode")!="";
   if ((val = server.arg("alarmReadyDelay")) != "") alarmReadyDelay = atoi(val.c_str());
   if ((val = server.arg("alarmSkipDelay")) != "") alarmSkipDelay = atoi(val.c_str());
   if ((val = server.arg("dataStoreDelay")) != "") dataStoreDelay = atoi(val.c_str());
@@ -258,10 +283,14 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   storeLogin = server.arg("storeLogin");
   storePassword = server.arg("storePassword");
   storeURL = server.arg("storeURL");
+  //storeLocalURL = server.arg("storeLocalURL");
   iswifiConnectionCheck = server.arg("iswifiConnectionCheck")!="";
   wifiRouterIP = server.arg("wifiRouterIP");
   tControlActive = server.arg("tControlActive")!="";
   tControlMin = ((val = server.arg("tControlMin")) != "")? atof(val.c_str()) : 0;
   tControlMax = ((val = server.arg("tControlMax")) != "")? atof(val.c_str()) : 0;
+  tAlarmActive = server.arg("tAlarmActive")!="";
+  tAlarmMin1 = ((val = server.arg("tAlarmMin1")) != "")? atof(val.c_str()) : -127;
+  tAlarmMin2 = ((val = server.arg("tAlarmMin2")) != "")? atof(val.c_str()) : -127;
 }
 
