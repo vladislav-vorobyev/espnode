@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "1.0.0"; // sketch version
+const char* SKETCH_VERSION = "1.0.1"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -940,17 +940,17 @@ void handleRoot() {
   response += "<meta http-equiv='Cache-control' content='no-cache'>\r\n";
   response += "<style>@media screen and (max-width: 1200px){body{font-size:300%}}</style>\r\n";
   response += "</head>\r\n<body>\r\n";
-  response += "<style>.gear {width:.7em; height:.7em; border-radius:1em; border:.15em solid #555; position: absolute;}</style>\r\n";
-  response += "<a href='/config'><div style='width:1em; height:1em; border-radius:1em; overflow:hidden; position:fixed; top:1em; right:1em;'>\r\n";
-  response += "<div class='gear' style='top:.45em; left:.45em;'></div>\r\n";
-  response += "<div class='gear' style='top:-.45em; left:.45em;'></div>\r\n";
-  response += "<div class='gear' style='top:.45em; left:-.45em;'></div>\r\n";
-  response += "<div class='gear' style='top:-.45em; left:-.45em;'></div>\r\n";
-  response += "<div class='gear' style='top:0; left:.63em;'></div>\r\n";
-  response += "<div class='gear' style='top:0; left:-.63em;'></div>\r\n";
-  response += "<div class='gear' style='top:.63em; left:0;'></div>\r\n";
-  response += "<div class='gear' style='top:-.63em; left:0;'></div>\r\n";
-  response += "</div></a>\r\n";
+  response += "<svg aria-hidden='true' style='position: absolute; width: 0; height: 0; overflow: hidden;' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'>\r\n";
+  response += "<defs>\r\n";
+  response += "<symbol id='icon-cog' viewBox='0 0 32 32'>\r\n";
+  response += "<path d='M29.181 19.070c-1.679-2.908-0.669-6.634 2.255-8.328l-3.145-5.447c-0.898 0.527-1.943 0.829-3.058 0.829-3.361 0-6.085-2.742-6.085-6.125h-6.289c0.008 1.044-0.252 2.103-0.811 ";
+  response += "3.070-1.679 2.908-5.411 3.897-8.339 2.211l-3.144 5.447c0.905 0.515 1.689 1.268 2.246 2.234 1.676 2.903 0.672 6.623-2.241 8.319l3.145 5.447c0.895-0.522 1.935-0.82 3.044-0.82 3.35 0 ";
+  response += "6.067 2.725 6.084 6.092h6.289c-0.003-1.034 0.259-2.080 0.811-3.038 1.676-2.903 5.399-3.894 8.325-2.219l3.145-5.447c-0.899-0.515-1.678-1.266-2.232-2.226zM16 22.479c-3.578 ";
+  response += "0-6.479-2.901-6.479-6.479s2.901-6.479 6.479-6.479c3.578 0 6.479 2.901 6.479 6.479s-2.901 6.479-6.479 6.479z'></path>\r\n";
+  response += "</symbol>\r\n";
+  response += "</defs>\r\n";
+  response += "</svg>\r\n";
+  response += "<a href='/config'><svg style='width:1em; height:1em; position:fixed; top:1em; right:1em; fill:#555;'><use xlink:href='#icon-cog'></use></svg></a>\r\n";
   response += "<div style='text-align:center'><h2>Temperature1:</h2><h1>" + temperature1 + "</h1></div>\r\n";
   response += "<div style='text-align:center'><h2>Temperature2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
   response += "</body>\r\n</html>\r\n";
