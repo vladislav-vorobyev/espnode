@@ -1,2 +1,2 @@
 # espnode
-smart home component based on ESP3286 microcontroller
+smart home component based on ESP8266 microcontroller
