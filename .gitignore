@@ -33,3 +33,4 @@ access.h
 *.exe
 *.out
 *.app
+*.bin
