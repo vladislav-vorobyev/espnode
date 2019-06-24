@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "1.0.1"; // sketch version
+const char* SKETCH_VERSION = "1.1.0"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -85,6 +85,8 @@ unsigned long alarmInitTime, alarmInitWait; // time, delay to initialize sensors
 int alarmInitState1 = -1, alarmInitState2 = -1; // alarm pins init state (loaded from config)
 unsigned long wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 bool isRelayOn = false; // relay status
+int tiksScreenShow = 20; // tiks before the screen will switched off
+int tiksScreenTest = 0; // tiks to show a white box on the full screen
 
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
@@ -366,6 +368,12 @@ void loop(void){
     display.setCursor(display.width()-1-6*activatedBehavior.length(), activatedPosY);
     display.print(activatedBehavior);
   }
+
+  // screen save mode
+  if (tiksScreenShow <= 0) {
+    display.resetDisplay();
+  }
+
   // show 1st sensor temperature
   display.setCursor(3,29);
   display.setTextSize(2);
@@ -400,7 +408,22 @@ void loop(void){
     display.drawPixel(xp, yp, WHITE);
     display.drawPixel(xp+1, yp, WHITE);
   }
-  
+
+  // screen save mode
+  if (tiksScreenShow > 0) {
+    tiksScreenShow--;
+  } else {
+    if (!isAlarm) {
+      display.resetDisplay();
+    }
+  }
+
+  // screen test mode
+  if (tiksScreenTest > 0) {
+    tiksScreenTest--;
+    display.fillRect(0, 0, display.width(), display.height(), WHITE);
+  }
+
   // animation to show activity
   int pos = 1 + markPos * 6, yp = display.height()-1;
   display.drawPixel(pos, yp, WHITE);
@@ -788,25 +811,41 @@ bool checkConnection(const char* host){
 void initWebServer() {
   server.on("/", handleRoot);
   server.onNotFound(handleNotFound);
-  
+
+  // screen show
+  server.on("/a", [](){
+    String val;
+    tiksScreenShow = ((val = server.arg("t")) != "")? atoi(val.c_str()) : 30;
+    serverSendHeaders();
+    server.send(200, "text/html", "ok" + backToRootHtml());
+  });
+
+  // screen test mode
+  server.on("/screen-test", [](){
+    String val;
+    tiksScreenTest = ((val = server.arg("t")) != "")? atoi(val.c_str()) : 30;
+    serverSendHeaders();
+    server.send(200, "text/html", "ok" + backToRootHtml());
+  });
+
   // json
   server.on("/json", [](){
     serverSendHeaders();
     server.send(200, "application/json", getJSON());
   });
-  
+
   // mac
   server.on("/mac", HTTP_GET, [](){
     serverSendHeaders();
     server.send(200, "text/plain", WiFi.macAddress());
   });
-  
+
   // uptime
   server.on("/uptime", HTTP_GET, [](){
     serverSendHeaders();
     server.send(200, "text/plain", getUptime());
   });
-  
+
   // restart
   server.on("/restart", HTTP_GET, [](){
     if(!server.authenticate(webLogin, webPassword))
@@ -815,7 +854,7 @@ void initWebServer() {
     server.send(200, "text/plain", "Restart...");
     ESP.restart();
   });
-  
+
   // alarm
   server.on("/alarm", HTTP_GET, [](){
     if(!server.authenticate(webLogin, webPassword))
@@ -829,7 +868,7 @@ void initWebServer() {
       + "</form>"
     );
   });
- 
+
   // alarm-update
   server.on("/alarm-update", HTTP_POST, [](){
     if(!server.authenticate(webLogin, webPassword))
@@ -860,11 +899,11 @@ void initWebServer() {
       response += "Failed to save config\n";
     } else {
       Serial.println("Config saved");
-      response += "Config saved\n";
+      response += "Config saved\n" + backToRootHtml();
     }
     // response
     serverSendHeaders();
-    server.send(200, "text/plain", response);
+    server.send(200, "text/html", response);
   });
 
   // config
@@ -873,7 +912,7 @@ void initWebServer() {
       return server.requestAuthentication();
     serverSendHeaders();
     server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/config-save'>\n" + config.getHTMLFormFields()
-      + "<input type='submit' value='Save' style='margin:1.5em 0; padding:.15em .9em;'></form>");
+      + "<input class='btn' type='submit' value='Save'></form>");
   });
  
   // config-save
@@ -890,14 +929,21 @@ void initWebServer() {
       response = "Failed to save config\n";
     } else {
       Serial.println("Config saved");
-      response = "Config saved\n";
+      response = "Config saved\n" + backToRootHtml();
     }
     // reinit
     initFromConfig();
     // response
     serverSendHeaders();
-    server.send(200, "text/plain", response);
+    server.send(200, "text/html", response);
   });
+}
+
+String backToRootHtml() {
+  return String("\r\n")
+    + "<script language='javascript'>\r\n"
+    + "window.location = '/';\r\n"
+    + "</script>\r\n";
 }
 
 void serverSendHeaders() {
@@ -914,17 +960,19 @@ String htmlHeader() {
     + "<meta http-equiv='Cache-control' content='no-cache'>\r\n"
     + "<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\r\n"
     + "<style>\r\n"
-    + "body { font-family:sans-serif; font-size:90%; line-height:1.6; color:#555; }\r\n"
+    + "body { font-family:sans-serif; font-size:95%; line-height:2; color:#555; }\r\n"
+    + "form { max-width:50em; }\r\n"
     + ".info, .info a, .info a:visited { color:#aaa; }\r\n"
     + "i.info { font-size:.9em; }\r\n"
     + "input { font-size:.9em; line-height:1.2; }\r\n"
-    + "input[type=\"checkbox\"] { height:1em; width:1em; vertical-align:middle; }\r\n"
+    + "input[type=\"checkbox\"] { height:1.3em; width:1.3em; vertical-align:middle; }\r\n"
     + "input[type=\"text\" i] { padding:.1em .3em; border:1px solid #ccc; }\r\n"
-    + "@media screen and (max-width: 1200px) { body { font-size:250%; } }\r\n"
+    + "input.btn { font-size:1.1em; margin:1.5em 1em; padding:.15em .9em; }\r\n"
+    + "@media screen and (max-width: 1200px) { body { font-size:300%; } }\r\n"
     + "</style>\r\n"
     + "\r\n"
     + "</head>\r\n<body>\r\n"
-    + "<i class='info'>Firmware version: " + String(SKETCH_VERSION) + " (<a href='/firmware'>update</a>) | <a href='/json'>&lt;json&gt;</a></i><br>\r\n";
+    + "<i class='info'>Firmware version: " + String(SKETCH_VERSION) + " (<a href='/firmware'>update</a>) | <a href='/json'>&lt;json&gt;</a> | <a href='/screen-test?t=10'>screen</a></i><br>\r\n";
 }
 
 void handleRoot() {
@@ -936,9 +984,16 @@ void handleRoot() {
   Serial.println("Temperature2: " + temperature2);
   
   serverSendHeaders();
-  String response = "<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n";
-  response += "<meta http-equiv='Cache-control' content='no-cache'>\r\n";
-  response += "<style>@media screen and (max-width: 1200px){body{font-size:300%}}</style>\r\n";
+  String response = String("<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n")
+    + "<meta http-equiv='Cache-control' content='no-cache'>\r\n"
+    + "<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\r\n"
+    + "<style>\r\n"
+    + "body { font-family:sans-serif; margin-top:4em; }\r\n"
+    + "h2 { font-size:1.3em; }\r\n"
+    + ".icon-tools { width:2em; height:2em; position:fixed; fill:#555; }\r\n"
+    + ".tool-options { top:1em; right:1.5em; }\r\n"
+    + "@media screen and (max-width: 1200px) { body { font-size:300% } }\r\n"
+    + "</style>\r\n";
   response += "</head>\r\n<body>\r\n";
   response += "<svg aria-hidden='true' style='position: absolute; width: 0; height: 0; overflow: hidden;' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'>\r\n";
   response += "<defs>\r\n";
@@ -950,9 +1005,14 @@ void handleRoot() {
   response += "</symbol>\r\n";
   response += "</defs>\r\n";
   response += "</svg>\r\n";
-  response += "<a href='/config'><svg style='width:1em; height:1em; position:fixed; top:1em; right:1em; fill:#555;'><use xlink:href='#icon-cog'></use></svg></a>\r\n";
-  response += "<div style='text-align:center'><h2>Temperature1:</h2><h1>" + temperature1 + "</h1></div>\r\n";
-  response += "<div style='text-align:center'><h2>Temperature2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
+  response += "<a href='/config'><svg class='icon-tools tool-options'><use xlink:href='#icon-cog'></use></svg></a>\r\n";
+  if (config.useTermoSensor1) {
+    response += "<div style='text-align:center'><h2>Температура дат.1:</h2><h1>" + temperature1 + "</h1></div>\r\n";
+  }
+  if (config.useTermoSensor2) {
+    response += "<div style='text-align:center'><h2>Температура дат.2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
+  }
+  response += "<br><br><div style='text-align:center'><a href='/a?t=10'>Активировать экран</a></div>\r\n";
   response += "</body>\r\n</html>\r\n";
   server.send(200, "text/html", response);
 }
@@ -987,9 +1047,10 @@ void initWebUpdate(){
       server.send(200, "text/plain", "FAIL");
     } else {
       server.send(200, "text/plain", "OK");
+      delay(500);
       ESP.restart();
     }
-  },[](){
+  }, [](){
     if(!server.authenticate(webLogin, webPassword))
       return false;
     

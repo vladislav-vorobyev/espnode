@@ -227,35 +227,47 @@ bool NodeConfig::save() {
 */
 String NodeConfig::getHTMLFormFields() {
   String response = "";
-  response += "<input type='text' name='hostname' value='" + String(hostname) + "' style='width:10em'> host name\n";
-  response += "<i class='info'>(" + WiFi.macAddress() + ")</i><br>\n";
-  response += "<input type='checkbox' name='useTermoSensor1' value=1 " + String(useTermoSensor1? "checked" : "") + "> use 1<sup>st</sup> temperature sensor with\n";
-  response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:4em'> shift<br>\n";
-  response += "<input type='checkbox' name='useTermoSensor2' value=1 " + String(useTermoSensor2? "checked" : "") + "> use 2<sup>nd</sup> temperature sensor with\n";
-  response += "<input type='text' name='t2ShiftDelta' value='" + String(t2ShiftDelta) + "' style='width:4em'> shift<br>\n";
-  response += "<input type='checkbox' name='useAlarmSensor1' value=1 " + String(useAlarmSensor1? "checked" : "") + "> use 1<sup>st</sup> alarm sensor with\n";
-  response += "normal state = <input type='text' name='alarmInit1' value='" + ((alarmInit1 != -1)? String(alarmInit1) : "") + "' placeholder='auto detect' style='width:2em'><br>\n";
-  response += "<input type='checkbox' name='useAlarmSensor2' value=1 " + String(useAlarmSensor2? "checked" : "") + "> use 2<sup>nd</sup> alarm sensor with\n";
-  response += "normal state = <input type='text' name='alarmInit2' value='" + ((alarmInit2 != -1)? String(alarmInit2) : "") + "' placeholder='auto detect' style='width:2em'><br>\n";
-  response += "<input type='checkbox' name='alarmActive' value=1 " + String(alarmActive? "checked" : "") + "> alarm check activated<br>\n";
-  response += "<input type='checkbox' name='tAlarmActive' value=1 " + String(tAlarmActive? "checked" : "") + "> temperature alarm activated<br>\n";
-  response += "t1 min <input type='text' name='tAlarmMin1' value='" + ((tAlarmMin1 != -127)? String(tAlarmMin1) : "") + "' style='width:4em'>\n";
-  response += "t2 min <input type='text' name='tAlarmMin2' value='" + ((tAlarmMin2 != -127)? String(tAlarmMin2) : "") + "' style='width:4em'><br>\n";
-  response += "<input type='checkbox' name='alarmAutoMode' value=1 " + String(alarmAutoMode? "checked" : "") + "> alarm auto mode <br>\n";
-  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:4em'> wait before alarm sensor will be ready (sec)<br>\n";
-  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:4em'> delay between alarm sending (sec)<br>\n";
-  response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:4em'> store delay (sec)<br>\n";
-  response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:4em'> store attempts<br>\n";
-  response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:4em'> store attempts delay (sec)<br>\n";
-  response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:15em'> store login<br>\n";
-  response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:15em'> store password<br>\n";
-  response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:15em'> store URL<br>\n";
+  response += "<i class='info'>(MAC&nbsp;адрес&nbsp;" + WiFi.macAddress() + ")</i><br>\n";
+  response += "Сетевое имя <input type='text' name='hostname' value='" + String(hostname) + "' style='width:10em'><br>\n";
+  response += "<fieldset>\n";
+  response += "<legend>Активация</legend>\n";
+  response += "<input type='checkbox' name='useTermoSensor1' value=1 " + String(useTermoSensor1? "checked" : "") + "> активировать 1<sup>ый</sup> сенсор температуры, скорректировать&nbsp;на&nbsp;";
+  response += "<input type='text' name='t1ShiftDelta' value='" + String(t1ShiftDelta) + "' style='width:4em'> градуса<br>\n";
+  response += "<input type='checkbox' name='useTermoSensor2' value=1 " + String(useTermoSensor2? "checked" : "") + "> активировать 2<sup>ой</sup> сенсор температуры, скорректировать&nbsp;на&nbsp;";
+  response += "<input type='text' name='t2ShiftDelta' value='" + String(t2ShiftDelta) + "' style='width:4em'> градуса<br>\n";
+  response += "<input type='checkbox' name='useAlarmSensor1' value=1 " + String(useAlarmSensor1? "checked" : "") + "> активировать 1<sup>ый</sup> сенсор тревоги,\n";
+  response += "значение&nbsp;покоя&nbsp;=&nbsp;<input type='text' name='alarmInit1' value='" + ((alarmInit1 != -1)? String(alarmInit1) : "") + "' placeholder='авто' style='width:2.1em'><br>\n";
+  response += "<input type='checkbox' name='useAlarmSensor2' value=1 " + String(useAlarmSensor2? "checked" : "") + "> активировать 2<sup>ой</sup> сенсор тревоги,\n";
+  response += "значение&nbsp;покоя&nbsp;=&nbsp;<input type='text' name='alarmInit2' value='" + ((alarmInit2 != -1)? String(alarmInit2) : "") + "' placeholder='авто' style='width:2.1em'><br>\n";
+  response += "<input type='text' name='alarmReadyDelay' value='" + String(alarmReadyDelay) + "' style='width:4em'> время ожидания готовности датчиков тревоги (сек)<br>\n";
+  response += "</fieldset>\n";
+  response += "<fieldset>\n";
+  response += "<legend>Контроль</legend>\n";
+  response += "<input type='checkbox' name='alarmActive' value=1 " + String(alarmActive? "checked" : "") + "> активировать режим тревоги<br>\n";
+  response += "<input type='checkbox' name='alarmAutoMode' value=1 " + String(alarmAutoMode? "checked" : "") + "> автоматическое отключение тревоги <br>\n";
+  response += "<input type='checkbox' name='tAlarmActive' value=1 " + String(tAlarmActive? "checked" : "") + "> активировать режим тревоги по температуре:<br>\n";
+  response += "минимальная&nbsp;t1&nbsp;<input type='text' name='tAlarmMin1' value='" + ((tAlarmMin1 != -127)? String(tAlarmMin1) : "") + "' style='width:4em'>\n";
+  response += "минимальная&nbsp;t2&nbsp;<input type='text' name='tAlarmMin2' value='" + ((tAlarmMin2 != -127)? String(tAlarmMin2) : "") + "' style='width:4em'><br>\n";
+  response += "<input type='checkbox' name='tControlActive' value=1 " + String(tControlActive? "checked" : "") + "> активировать режим контроля температуры:\n";
+  response += "минимум&nbsp;<input type='text' name='tControlMin' value='" + String(tControlMin) + "' style='width:4em'>\n";
+  response += "максимум&nbsp;<input type='text' name='tControlMax' value='" + String(tControlMax) + "' style='width:4em'><br>\n";
+  response += "</fieldset>\n";
+  response += "<fieldset>\n";
+  response += "<legend>Отправка данных</legend>\n";
+  response += "<input type='text' name='storeURL' value='" + String(storeURL) + "' style='width:15em'> URL<br>\n";
+  response += "<input type='text' name='storeLogin' value='" + String(storeLogin) + "' style='width:15em'> логин<br>\n";
+  response += "<input type='text' name='storePassword' value='" + String(storePassword) + "' style='width:15em'> пароль<br>\n";
   //response += "<input type='text' name='storeLocalURL' value='" + String(storeLocalURL) + "' style='width:15em'> local server URL<br>\n";
-  response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> check connection to WiFi router<br>\n";
-  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:15em'> WiFi router IP<br>\n";
-  response += "<input type='checkbox' name='tControlActive' value=1 " + String(tControlActive? "checked" : "") + "> activate temperature control<br>\n";
-  response += "min <input type='text' name='tControlMin' value='" + String(tControlMin) + "' style='width:4em'>\n";
-  response += "and max <input type='text' name='tControlMax' value='" + String(tControlMax) + "' style='width:4em'><br>\n";
+  response += "<input type='text' name='dataStoreDelay' value='" + String(dataStoreDelay) + "' style='width:4em'> период между отправкой состояния датчиков (сек)<br>\n";
+  response += "<input type='text' name='alarmSkipDelay' value='" + String(alarmSkipDelay) + "' style='width:4em'> период между повторной отправкой состояния тревоги (сек)<br>\n";
+  response += "<input type='text' name='dataStoreAttempts' value='" + String(dataStoreAttempts) + "' style='width:4em'> кол-во попыток по отправке в случае неудачи<br>\n";
+  response += "<input type='text' name='dataStoreAttemptsDelay' value='" + String(dataStoreAttemptsDelay) + "' style='width:4em'> период между повторными попытками по отправке (сек)<br>\n";
+  response += "</fieldset>\n";
+  response += "<fieldset>\n";
+  response += "<legend>WiFi</legend>\n";
+  response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> проверка доступности WiFi роутера<br>\n";
+  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:15em'> IP адрес WiFi роутера<br>\n";
+  response += "</fieldset>\n";
   return response;
 }
 
@@ -293,4 +305,5 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   tAlarmMin1 = ((val = server.arg("tAlarmMin1")) != "")? atof(val.c_str()) : -127;
   tAlarmMin2 = ((val = server.arg("tAlarmMin2")) != "")? atof(val.c_str()) : -127;
 }
+
 
