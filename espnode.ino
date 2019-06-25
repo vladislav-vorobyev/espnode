@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "1.1.0"; // sketch version
+const char* SKETCH_VERSION = "1.1.2"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -87,6 +87,7 @@ unsigned long wifiReconnectTime = 0; // next time to reconnecting to WiFi (msec)
 bool isRelayOn = false; // relay status
 int tiksScreenShow = 20; // tiks before the screen will switched off
 int tiksScreenTest = 0; // tiks to show a white box on the full screen
+int screenXd = 0; // shift to screen saver
 
 bool isExistsWire1 = false;
 bool isExistsWire2 = false;
@@ -289,14 +290,17 @@ void loop(void){
 
   // temperature
   float t1 = 0, t2 = 0, t0 = 0;
+  char t_str[10];
   String temperature1 = "--", temperature2 = "--";
   if (isExistsWire2 && config.useTermoSensor2) {
     t0 = t2 = getTemperature(&ds18b20_2, config.t2ShiftDelta);
-    temperature2 = String(t2);
+    dtostrf(t0, 2, 1, t_str);
+    temperature2 = String(t_str);
   }
   if (isExistsWire1 && config.useTermoSensor1) {
     t0 = t1 = getTemperature(&ds18b20_1, config.t1ShiftDelta);
-    temperature1 = String(t1);
+    dtostrf(t0, 2, 1, t_str);
+    temperature1 = String(t_str);
   }
 
   // temperatire control
@@ -360,7 +364,7 @@ void loop(void){
       activatedBehavior += " AA";
     }
     if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
-      display.print(String(" ") + String(temperature2));
+      display.print(String(" ") + temperature2);
       activatedPosY = 9;
     } else {
       activatedPosY = 17;
@@ -372,12 +376,31 @@ void loop(void){
   // screen save mode
   if (tiksScreenShow <= 0) {
     display.resetDisplay();
+    if (config.showTermoAlways) {
+      display.setTextSize(2);
+      if (isExistsWire1 && config.useTermoSensor1 && isExistsWire2 && config.useTermoSensor2) {
+      // show 1st and 2nd sensors temperature
+        display.setCursor(screenXd,9);
+        display.println(temperature1);
+        display.setCursor(screenXd,29);
+        display.println(temperature2);
+      } else {
+        // show 1st or 2nd sensor temperature
+        display.setCursor(screenXd,29);
+        display.println((isExistsWire1 && config.useTermoSensor1)? temperature1 : temperature2);
+      }
+      screenXd++;
+      if (screenXd > 16) screenXd = 0;
+    }
+
+  } else {
+    tiksScreenShow--;
+    // show 1st or 2nd sensor temperature
+    display.setCursor(7,29);
+    display.setTextSize(2);
+    display.println((isExistsWire1 && config.useTermoSensor1)? temperature1 : temperature2);
   }
 
-  // show 1st sensor temperature
-  display.setCursor(3,29);
-  display.setTextSize(2);
-  display.println((isExistsWire1 && config.useTermoSensor1)? temperature1 : temperature2);
   if (!isAlarm) {
     // busser set off
     if (buzzerOn) {
@@ -407,15 +430,6 @@ void loop(void){
     display.drawPixel(xp-1, yp, WHITE);
     display.drawPixel(xp, yp, WHITE);
     display.drawPixel(xp+1, yp, WHITE);
-  }
-
-  // screen save mode
-  if (tiksScreenShow > 0) {
-    tiksScreenShow--;
-  } else {
-    if (!isAlarm) {
-      display.resetDisplay();
-    }
   }
 
   // screen test mode

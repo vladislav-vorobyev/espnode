@@ -7,6 +7,7 @@ private:
   StaticJsonBuffer<1024> jsonBuffer;
 public:
   String hostname; // self host name
+  bool showTermoAlways; // always show temperature on display
   bool useTermoSensor1; // user 1st temperature sensor
   bool useTermoSensor2; // user 2nd temperature sensor
   bool useAlarmSensor1; // user 1st alarm sensor
@@ -38,6 +39,7 @@ public:
   NodeConfig(){
     // set default values
     hostname = "";
+    showTermoAlways = false;
     useTermoSensor1 = true;
     useTermoSensor2 = true;
     useAlarmSensor1 = true;
@@ -146,6 +148,7 @@ bool NodeConfig::load() {
 
   // read variables
   read("hostname", json, hostname);
+  read("showTermoAlways", json, showTermoAlways);
   read("useTermoSensor1", json, useTermoSensor1);
   read("useTermoSensor2", json, useTermoSensor2);
   read("useAlarmSensor1", json, useAlarmSensor1);
@@ -184,6 +187,7 @@ bool NodeConfig::save() {
   StaticJsonBuffer<2048> jsonBuffer;
   JsonObject& json = jsonBuffer.createObject();
   json["hostname"] = hostname;
+  json["showTermoAlways"] = showTermoAlways;
   json["useTermoSensor1"] = useTermoSensor1;
   json["useTermoSensor2"] = useTermoSensor2;
   json["useAlarmSensor1"] = useAlarmSensor1;
@@ -229,6 +233,10 @@ String NodeConfig::getHTMLFormFields() {
   String response = "";
   response += "<i class='info'>(MAC&nbsp;адрес&nbsp;" + WiFi.macAddress() + ")</i><br>\n";
   response += "Сетевое имя <input type='text' name='hostname' value='" + String(hostname) + "' style='width:10em'><br>\n";
+  response += "<fieldset>\n";
+  response += "<legend>Внешний вид</legend>\n";
+  response += "<input type='checkbox' name='showTermoAlways' value=1 " + String(showTermoAlways? "checked" : "") + "> всегда отображать температуру";
+  response += "</fieldset>\n";
   response += "<fieldset>\n";
   response += "<legend>Активация</legend>\n";
   response += "<input type='checkbox' name='useTermoSensor1' value=1 " + String(useTermoSensor1? "checked" : "") + "> активировать 1<sup>ый</sup> сенсор температуры, скорректировать&nbsp;на&nbsp;";
@@ -277,6 +285,7 @@ String NodeConfig::getHTMLFormFields() {
 void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   String val;
   hostname = server.arg("hostname");
+  showTermoAlways = server.arg("showTermoAlways")!="";
   useTermoSensor1 = server.arg("useTermoSensor1")!="";
   useTermoSensor2 = server.arg("useTermoSensor2")!="";
   useAlarmSensor1 = server.arg("useAlarmSensor1")!="";
