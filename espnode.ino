@@ -14,7 +14,7 @@
 *   -+ d
 */
 
-const char* SKETCH_VERSION = "1.1.2"; // sketch version
+const char* SKETCH_VERSION = "1.1.3"; // sketch version
 
 #define ONE_WIRE_BUS1 2  // DS18B20 1st sensor pin
 #define ONE_WIRE_BUS2 14 // DS18B20 2nd sensor pin
@@ -66,6 +66,8 @@ Adafruit_SSD1306_m display(OLED_RESET);
 
 #include "config.h"
 NodeConfig config;
+
+String wifiRouterIP; // to check connection (can be set auto)
 
 #include "access.h"
 const char* ssid;
@@ -274,7 +276,7 @@ void loop(void){
   //wifi check
   if (WiFi.status() == WL_CONNECTED && tryToCheckConnection) {
     tryToCheckConnection = false;
-    if (!checkConnection(config.wifiRouterIP.c_str())) {
+    if (!checkConnection(wifiRouterIP.c_str())) {
       WiFi.disconnect();
     }
   }
@@ -566,6 +568,9 @@ bool connectToWiFi() {
   //display
   Serial.println();
   Serial.println("Try to connect to:");
+  if (config.wifiName != "") {
+    Serial.println(config.wifiName);
+  }
   for (int k = 0; k < wifiNetNum; k++)
     Serial.println(wifiNet[k][0]);
   Serial.println("Scan WiFi networks");
@@ -605,11 +610,17 @@ bool connectToWiFi() {
       Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE)?" ":"*");
       // check
       String id = WiFi.SSID(i);
-      for (int k = 0; k < wifiNetNum; k++) {
-        if (id == String(wifiNet[k][0])) {
+      if (config.hostname != "" && config.wifiName == id) {
           ssid_exists = true;
-          ssid = wifiNet[k][0];
-          password = wifiNet[k][1];
+          ssid = config.wifiName.c_str();
+          password = config.wifiPassword.c_str();
+      } else {
+        for (int k = 0; k < wifiNetNum; k++) {
+          if (id == String(wifiNet[k][0])) {
+            ssid_exists = true;
+            ssid = wifiNet[k][0];
+            password = wifiNet[k][1];
+          }
         }
       }
       delay(10);
@@ -669,10 +680,21 @@ bool connectToWiFi() {
     display.println("Connected.");
     display.println(WiFi.localIP());
     display.display();
-  
+ 
     Serial.print("MAC address: ");
     Serial.println(WiFi.macAddress());
-    
+
+    if (config.wifiRouterIP != "") {
+      wifiRouterIP = config.wifiRouterIP;
+    } else {
+      wifiRouterIP = WiFi.localIP().toString();
+      int p = wifiRouterIP.length() - 1;
+      while (wifiRouterIP[p] != '.' && p > 0) p--;
+      wifiRouterIP = wifiRouterIP.substring(0, p+1) + "1";
+      Serial.print("WiFi Router IP: ");
+      Serial.println(wifiRouterIP);
+    }
+ 
     wifiReconnectTime = 0;
     return true;
     
@@ -926,7 +948,9 @@ void initWebServer() {
       return server.requestAuthentication();
     serverSendHeaders();
     server.send(200, "text/html", htmlHeader() + "<form method='POST' action='/config-save'>\n" + config.getHTMLFormFields()
-      + "<input class='btn' type='submit' value='Save'></form>");
+      + "<input class='btn' type='submit' value='Применить'>"
+      + "<input class='btn' type='button' value='Отмена' onclick='location.href=\"/\"'>"
+      + "</form>");
   });
  
   // config-save
@@ -1006,6 +1030,7 @@ void handleRoot() {
     + "h2 { font-size:1.3em; }\r\n"
     + ".icon-tools { width:2em; height:2em; position:fixed; fill:#555; }\r\n"
     + ".tool-options { top:1em; right:1.5em; }\r\n"
+    + ".info { color:#777; text-align:right; }\r\n"
     + "@media screen and (max-width: 1200px) { body { font-size:300% } }\r\n"
     + "</style>\r\n";
   response += "</head>\r\n<body>\r\n";
@@ -1026,7 +1051,8 @@ void handleRoot() {
   if (config.useTermoSensor2) {
     response += "<div style='text-align:center'><h2>Температура дат.2:</h2><h1>" + temperature2 + "</h1></div>\r\n";
   }
-  response += "<br><br><div style='text-align:center'><a href='/a?t=10'>Активировать экран</a></div>\r\n";
+  response += "<br><br><div style='text-align:center'><a href='/a?t=100'>Активировать экран</a></div>\r\n";
+  response += "<br><br><div class='info'>Router IP: " + wifiRouterIP + "</div>\r\n";
   response += "</body>\r\n</html>\r\n";
   server.send(200, "text/html", response);
 }

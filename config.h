@@ -27,14 +27,16 @@ public:
   String storePassword;
   String storeURL; // hosting
   String storeLocalURL; // local server
-  bool iswifiConnectionCheck; // is make a ping the local wifi server to recheck connection
-  String wifiRouterIP; // url to check wifi
   bool tControlActive; // is temperature control relay active
   float tControlMin; // min temperature (set relay on)
   float tControlMax; // max temperature (set relay off)
   bool tAlarmActive; // is temperature alarm active
   float tAlarmMin1; // min temperature to alarm (set -127 to off)
   float tAlarmMin2; // min temperature to alarm (set -127 to off)
+  String wifiName; // custom WiFi access
+  String wifiPassword;
+  bool iswifiConnectionCheck; // is make a ping the local wifi server to recheck connection
+  String wifiRouterIP; // url to check wifi
 
   NodeConfig(){
     // set default values
@@ -57,14 +59,16 @@ public:
     storePassword = "123";
     storeURL = "";
     storeLocalURL = "";
-    iswifiConnectionCheck = false;
-    wifiRouterIP = "";
     tControlActive = false;
     tControlMin = 0;
     tControlMax = 0;
     tAlarmActive = false;
     tAlarmMin1 = -127;
     tAlarmMin2 = -127;
+    wifiName = "";
+    wifiPassword = "";
+    iswifiConnectionCheck = false;
+    wifiRouterIP = "";
   }
   
   void read(const char* name, JsonObject& json, bool& var);
@@ -168,14 +172,16 @@ bool NodeConfig::load() {
   read("storePassword", json, storePassword);
   read("storeURL", json, storeURL);
   //read("storeLocalURL", json, storeLocalURL);
-  read("iswifiConnectionCheck", json, iswifiConnectionCheck);
-  read("wifiRouterIP", json, wifiRouterIP);
   read("tControlActive", json, tControlActive);
   read("tControlMin", json, tControlMin);
   read("tControlMax", json, tControlMax);
   read("tAlarmActive", json, tAlarmActive);
   read("tAlarmMin1", json, tAlarmMin1);
   read("tAlarmMin2", json, tAlarmMin2);
+  read("wifiName", json, wifiName);
+  read("wifiPassword", json, wifiPassword);
+  read("iswifiConnectionCheck", json, iswifiConnectionCheck);
+  read("wifiRouterIP", json, wifiRouterIP);
 
   return true;
 }
@@ -207,14 +213,16 @@ bool NodeConfig::save() {
   json["storePassword"] = storePassword;
   json["storeURL"] = storeURL;
   //json["storeLocalURL"] = storeLocalURL;
-  json["iswifiConnectionCheck"] = iswifiConnectionCheck;
-  json["wifiRouterIP"] = wifiRouterIP;
   json["tControlActive"] = tControlActive;
   json["tControlMin"] = tControlMin;
   json["tControlMax"] = tControlMax;
   json["tAlarmActive"] = tAlarmActive;
   json["tAlarmMin1"] = tAlarmMin1;
   json["tAlarmMin2"] = tAlarmMin2;
+  json["wifiName"] = wifiName;
+  json["wifiPassword"] = wifiPassword;
+  json["iswifiConnectionCheck"] = iswifiConnectionCheck;
+  json["wifiRouterIP"] = wifiRouterIP;
 
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile) {
@@ -273,8 +281,10 @@ String NodeConfig::getHTMLFormFields() {
   response += "</fieldset>\n";
   response += "<fieldset>\n";
   response += "<legend>WiFi</legend>\n";
+  response += "<input type='text' name='wifiName' value='" + String(wifiName) + "' style='width:15em'> имя сети<br>\n";
+  response += "<input type='text' name='wifiPassword' value='" + String(wifiPassword) + "' style='width:15em'> пароль<br>\n";
   response += "<input type='checkbox' name='iswifiConnectionCheck' value=1 " + String(iswifiConnectionCheck? "checked" : "") + "> проверка доступности WiFi роутера<br>\n";
-  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' style='width:15em'> IP адрес WiFi роутера<br>\n";
+  response += "<input type='text' name='wifiRouterIP' value='" + String(wifiRouterIP) + "' placeholder='авто' style='width:10em'> IP адрес WiFi роутера<br>\n";
   response += "</fieldset>\n";
   return response;
 }
@@ -305,14 +315,16 @@ void NodeConfig::handleFormSubmit(ESP8266WebServer& server) {
   storePassword = server.arg("storePassword");
   storeURL = server.arg("storeURL");
   //storeLocalURL = server.arg("storeLocalURL");
-  iswifiConnectionCheck = server.arg("iswifiConnectionCheck")!="";
-  wifiRouterIP = server.arg("wifiRouterIP");
   tControlActive = server.arg("tControlActive")!="";
   tControlMin = ((val = server.arg("tControlMin")) != "")? atof(val.c_str()) : 0;
   tControlMax = ((val = server.arg("tControlMax")) != "")? atof(val.c_str()) : 0;
   tAlarmActive = server.arg("tAlarmActive")!="";
   tAlarmMin1 = ((val = server.arg("tAlarmMin1")) != "")? atof(val.c_str()) : -127;
   tAlarmMin2 = ((val = server.arg("tAlarmMin2")) != "")? atof(val.c_str()) : -127;
+  wifiName = server.arg("wifiName");
+  wifiPassword = server.arg("wifiPassword");
+  iswifiConnectionCheck = server.arg("iswifiConnectionCheck")!="";
+  wifiRouterIP = server.arg("wifiRouterIP");
 }
 
 
